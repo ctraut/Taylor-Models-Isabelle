@@ -1,42 +1,10 @@
 theory Taylor_Models
-imports "~~/src/HOL/Decision_Procs/Reflected_Multivariate_Polynomial"
+imports "Generic_Multivariate_Polynomials"
         "~~/src/HOL/Decision_Procs/Approximation"
         "~~/src/HOL/Library/Function_Algebras"
         "~~/src/HOL/Library/Set_Algebras"
         (*"/home/christoph/Documents/Studium/Interdisziplinäres Projekt/afp-linode/thys/Affine_Arithmetic/Affine_Arithmetic"*)
 begin
-
-(* Playing with approximations and interval arithmetic. *)
-term "Num 0"
-term "Less (Num 0) (Num 1)"
-term "eval (Num 0)"
-term "approx 10 ((Add (Num 0) (Num 1))) []"
-approximate "arctan 1.5"
-approximate "sin 3"
-
-value "{0..Suc 0} + {Suc 0..2}"
-(*value "{0..1}::real set"*)
-  
-ML {*
-val abc = Thm.global_cterm_of @{theory} @{term "Add (Num 1) (Num 2)"};
-Reification.tac @{context} [] NONE 0;
-*}
-
-lemma "arctan 1.5 < 1"
-by (approximation 10)
-
-(* Trying out multivariate polynomials.*)
-value "Ipoly [x\<^sub>0::real, x\<^sub>1, x\<^sub>2, x\<^sub>3] (poly.Add ((poly.Pw (poly.Bound 2) 3)) (poly.Mul (poly.Bound 0) (poly.Bound 1)))"
-
-value "Ipoly [x\<^sub>0::real, x\<^sub>1] (poly.Add (poly.Pw (poly.Bound 0) 2) (poly.Mul (poly.C (2, 2)) (poly.Pw (poly.Bound 1) 3)))"
-
-value "\<lambda>x\<^sub>0 x\<^sub>1. Ipoly [x\<^sub>0::real, x\<^sub>1] (poly.Add (poly.Pw (poly.Bound 0) 2) (poly.Mul (poly.C (2, 2)) (poly.Pw (poly.Bound 1) 3)))"
-
-value "polynate ((poly.Add ((poly.Pw (poly.Bound 2) 3)) (poly.Mul (poly.Bound 0) (poly.Bound 1))))"
-thm polynate_norm
-
-value "Float 1 2"
-
 
 (* I define my own interval type here. TODO: Do I really need to do this? *)
 datatype 'a interval = Ivl 'a 'a
@@ -50,7 +18,10 @@ where "upper i = (case i of (Ivl l u) \<Rightarrow> u)"
 definition set_of :: "('a::ord) interval \<Rightarrow> 'a set"
 where "set_of i = (case i of (Ivl l u) \<Rightarrow> {l..u})"
 
-declare lower_def[simp] upper_def[simp] set_of_def[simp]
+definition prod_of :: "('a::ord) interval \<Rightarrow> 'a \<times> 'a"
+where "prod_of i = (case i of (Ivl l u) \<Rightarrow> (l, u))"
+
+lemmas [simp] = lower_def upper_def set_of_def prod_of_def
 
 
 (* Type instantiations for intervals. *)
@@ -88,7 +59,7 @@ begin
   instance ..
 end
 
-declare plus_interval_def[simp] times_interval_def[simp]
+lemmas [simp] = plus_interval_def times_interval_def
 
 value "Ivl (0::real) 1 * Ivl 0 1"
 value "Ivl (-1::real) 1 * Ivl 0 1"
@@ -112,7 +83,7 @@ by (simp, smt mult.commute mult_right_less_imp_less mult_right_mono_neg)
 (* TODO: - For now, I hard-code the precision, because I don't want to carry it around.
            Later, it will become explicit. *)
 fun compute_bound :: "floatarith \<Rightarrow> float interval list \<Rightarrow> float interval option"
-where "compute_bound p I = (case approx 32 p (map (\<lambda>i. case i of Ivl a b \<Rightarrow> Some (a, b)) I) of Some (a, b) \<Rightarrow> Some (Ivl a b) | _ \<Rightarrow> None)"
+where "compute_bound p I = (case approx 64 p (map (\<lambda>i. case i of Ivl a b \<Rightarrow> Some (a, b)) I) of Some (a, b) \<Rightarrow> Some (Ivl a b) | _ \<Rightarrow> None)"
 
 value "compute_bound (Add (Var 0) (Num 3)) [Ivl 1 2]"
 
@@ -172,19 +143,19 @@ proof-
       show "map real i ! n \<le> real (b ! n)"
         using concl by simp
     qed
-  moreover have "Some (l, u) = approx 32 f (map Some (zip a b))"
+  moreover have "Some (l, u) = approx 64 f (map Some (zip a b))"
     proof(rule ccontr)
-      assume contr_assm: "Some (l, u) \<noteq> approx 32 f (map Some (zip a b))"
+      assume contr_assm: "Some (l, u) \<noteq> approx 64 f (map Some (zip a b))"
       have [simp]: "map (case_interval (\<lambda>a b. Some (a, b)) \<circ> (\<lambda>(x, y). Ivl x y)) (zip a b) = map Some (zip a b)"
         by auto
       show False
-        proof(cases "approx 32 f (map Some (zip a b))")
-          assume "approx 32 f (map Some (zip a b)) = None"
+        proof(cases "approx 64 f (map Some (zip a b))")
+          assume "approx 64 f (map Some (zip a b)) = None"
           from assms(1)[unfolded compute_bound.simps I_def, simplified, unfolded this]
           show "False"
             by auto
         next
-          fix ab' assume assm: "approx 32 f (map Some (zip a b)) = Some ab'"
+          fix ab' assume assm: "approx 64 f (map Some (zip a b)) = Some ab'"
           obtain a' b' where ab'_def: "ab' = (a', b')"
             using old.prod.exhaust by blast
           from assms(1)[unfolded compute_bound.simps I_def, simplified, unfolded assm this, simplified]
@@ -195,18 +166,56 @@ proof-
     using approx by auto
 qed
 
-(* Taylor models are a tupel of an approximation polynomial and error bound (an interval).
-   TODO: Generalize! For now, we only implement univariate taylor models. *)
-datatype taylor_model = TaylorModel floatarith "float interval"
+(* Conversion map for poly. *)
+fun poly_map :: "('a \<Rightarrow> 'b) \<Rightarrow> 'a poly \<Rightarrow> 'b poly"
+where "poly_map f (poly.C c)      = poly.C (f c)"
+    | "poly_map _ (poly.Bound n)  = poly.Bound n"
+    | "poly_map f (poly.Add a b)  = poly.Add (poly_map f a) (poly_map f b)"
+    | "poly_map f (poly.Sub a b)  = poly.Sub (poly_map f a) (poly_map f b)"
+    | "poly_map f (poly.Mul a b)  = poly.Mul (poly_map f a) (poly_map f b)"
+    | "poly_map f (poly.Neg a)    = poly.Neg (poly_map f a)"
+    | "poly_map f (poly.Pw a n)   = poly.Pw (poly_map f a) n"
+    | "poly_map f (poly.CN a n b) = poly.CN (poly_map f a) n (poly_map f b)"
 
-definition valid_tm :: "real set \<Rightarrow> (real \<Rightarrow> real) \<Rightarrow> taylor_model \<Rightarrow> bool"
-where "valid_tm S f t = (case t of (TaylorModel p (Ivl l u)) \<Rightarrow> \<forall>x\<in>S. f x - interpret_floatarith p [x] \<in> {l..u})"
+declare [[coercion_map poly_map]]
+
+(* Count the number of parameters of a polynom. *)
+fun num_params :: "'a poly \<Rightarrow> nat"
+where "num_params (poly.C c) = 0"
+    | "num_params (poly.Bound n)  = Suc n"
+    | "num_params (poly.Add a b)  = max (num_params a) (num_params b)"
+    | "num_params (poly.Sub a b)  = max (num_params a) (num_params b)"
+    | "num_params (poly.Mul a b)  = max (num_params a) (num_params b)"
+    | "num_params (poly.Neg a)    = num_params a"
+    | "num_params (poly.Pw a n)   = num_params a"
+    | "num_params (poly.CN a n b) = max (max (num_params a) (num_params b)) (Suc n)"
+
+(* Evaluating a float poly is equivalent to evaluating the corresponding
+   real poly with the corresponding real parameters. *)
+lemma Ipoly_real_float_eqiv:
+fixes p::"float poly" and xs::"float list" and r::float
+assumes "num_params p \<le> length xs"
+shows "Ipoly xs (p::real poly) = Ipoly xs p"
+using assms by (induct p, simp_all)
+
+
+(* Taylor models are a pair of a polynomial and an absolute error bound (an interval). *)
+datatype taylor_model = TaylorModel "float poly" "float interval"
+
+(* TODO: Implement! Try to translate a float poly into an floatarith expression and use compute_bound. 
+         Use the fact, that compute_bound can never return None when called on a polygon. *)
+fun compute_bound_TM :: "taylor_model \<Rightarrow> float interval list \<Rightarrow> float interval"
+where "compute_bound_TM _ _ = undefined"
+
+(* TODO: Can I simplify my notion of validity? *)
+definition valid_tm :: "real set list \<Rightarrow> (real list \<Rightarrow> real) \<Rightarrow> taylor_model \<Rightarrow> bool"
+where "valid_tm S f t = (\<forall>x. length x = length S \<and> (\<forall>n<length S. x!n \<in> S!n) \<longrightarrow> (case t of (TaylorModel p (Ivl l u)) \<Rightarrow> f x - Ipoly x (p::real poly) \<in> {l..u}))"
 
 lemma valid_tmD[elim]:
 assumes "valid_tm S f t"
 obtains p l u
 where "t = TaylorModel p (Ivl l u)"
-and   "\<And>x. x \<in> S \<Longrightarrow> f x - interpret_floatarith p [x] \<in> {l..u}"
+and   "\<And>x. length x = length S \<Longrightarrow> (\<And>n. n < length S \<Longrightarrow> x!n \<in> S!n) \<Longrightarrow> f x - Ipoly x (p::real poly) \<in> {l..u}"
 proof-
   from assms obtain p i where t_def: "t = TaylorModel p i"
     using taylor_model.exhaust by auto
@@ -221,22 +230,24 @@ qed
 
 lemma valid_tmI[intro]:
 assumes "t = TaylorModel p (Ivl l u)"
-and   "\<And>x. x \<in> S \<Longrightarrow> f x - interpret_floatarith p [x] \<in> {l..u}"
+and   "\<And>x. length x = length S \<Longrightarrow> (\<And>n. n < length S \<Longrightarrow> x!n \<in> S!n) \<Longrightarrow> f x - Ipoly x (p::real poly) \<in> {l..u}"
 shows "valid_tm S f t"
 using assms by (auto simp: valid_tm_def)
 
 (* Operations on taylor models. *)
 fun TMNeg :: "taylor_model \<Rightarrow> taylor_model"
-where "TMNeg (TaylorModel p (Ivl l u)) = TaylorModel (Minus p) (Ivl (-u) (-l))"
+where "TMNeg (TaylorModel p (Ivl l u)) = TaylorModel (poly.Neg p) (Ivl (-u) (-l))"
 
 fun TMAdd :: "taylor_model \<Rightarrow> taylor_model \<Rightarrow> taylor_model"
-where "TMAdd (TaylorModel p1 i1) (TaylorModel p2 i2) = TaylorModel (Add p1 p2) (i1+i2)"
+where "TMAdd (TaylorModel p1 i1) (TaylorModel p2 i2) = TaylorModel (poly.Add p1 p2) (i1+i2)"
 
 fun TMSub :: "taylor_model \<Rightarrow> taylor_model \<Rightarrow> taylor_model"
 where "TMSub t1 t2 = TMAdd t1 (TMNeg t2)"
 
-(*fun TMMul :: "taylor_model \<Rightarrow> taylor_model \<Rightarrow> float interval \<Rightarrow> taylor_model"
-where "TMMul (TaylorModel p1 i1) (TaylorModel p2 i2) I = TaylorModel (Mult p1 p2) (i1+i2)"*)
+(* TODO: - Implement correctly. 
+         - Make sure this never increases the degree of the polynomial! *)
+fun TMMul :: "taylor_model \<Rightarrow> taylor_model \<Rightarrow> float interval \<Rightarrow> taylor_model"
+where "TMMul (TaylorModel p1 i1) (TaylorModel p2 i2) I = TaylorModel (poly.Mul p1 p2) (i1*i2)"
 
 (* Validity of taylor models is preserved under these operations. *)
 lemma TMNeg_valid:
@@ -244,15 +255,17 @@ assumes "valid_tm S f t"
 shows "valid_tm S (-f) (TMNeg t)"
 proof-
   from valid_tmD[OF assms]
-  obtain p l u where t_def: "t = TaylorModel p (Ivl l u)" "\<And>x. x \<in> S \<Longrightarrow> f x - interpret_floatarith p [x] \<in> {l..u}"
-    by auto
+  obtain p l u where t_def: 
+    "t = TaylorModel p (Ivl l u)"
+    "\<And>x. length x = length S \<Longrightarrow> (\<And>n. n < length S \<Longrightarrow> x ! n \<in> S ! n) \<Longrightarrow> f x - Ipoly x p \<in> {l..u}"
+      by blast
   show ?thesis
     apply(rule)
     apply(simp add: t_def(1))
     proof-
-      fix x assume "x \<in> S"
-      show "(- f) x - (interpret_floatarith (Minus p) [x]) \<in> {-u..-l}"
-        using t_def(2)[OF `x \<in> S`] by simp
+      fix x assume assms: "length x = length S" "(\<And>n. n < length S \<Longrightarrow> x ! n \<in> S ! n)"
+      show "(-f) x - Ipoly x (Neg p) \<in> {(-u)..(-l)}"
+        using t_def(2)[OF assms] by simp
     qed
 qed
 
@@ -262,16 +275,16 @@ assumes "valid_tm S g t2"
 shows "valid_tm S (f + g) (TMAdd t1 t2)"
 proof-
   from valid_tmD[OF assms(1)]
-  obtain p1 l1 u1 where t1_def: "t1 = TaylorModel p1 (Ivl l1 u1)" "\<And>x. x \<in> S \<Longrightarrow> f x - interpret_floatarith p1 [x] \<in> {l1..u1}"
-    by auto
+  obtain p1 l1 u1 where t1_def: "t1 = TaylorModel p1 (Ivl l1 u1)" "\<And>x. length x = length S \<Longrightarrow> (\<And>n. n < length S \<Longrightarrow> x ! n \<in> S ! n) \<Longrightarrow> f x - Ipoly x p1 \<in> {l1..u1}"
+    by blast
   from valid_tmD[OF assms(2)]
-  obtain p2 l2 u2 where t2_def: "t2 = TaylorModel p2 (Ivl l2 u2)" "\<And>x. x \<in> S \<Longrightarrow> g x - interpret_floatarith p2 [x] \<in> {l2..u2}"
-    by auto
+  obtain p2 l2 u2 where t2_def: "t2 = TaylorModel p2 (Ivl l2 u2)" "\<And>x. length x = length S \<Longrightarrow> (\<And>n. n < length S \<Longrightarrow> x ! n \<in> S ! n) \<Longrightarrow> g x - Ipoly x p2 \<in> {l2..u2}"
+    by blast
   show "valid_tm S (f + g) (TMAdd t1 t2)"
     proof(rule, simp add: t1_def(1) t2_def(1))
-      fix x assume "x \<in> S"
+      fix x assume assms: "length x = length S" "(\<And>n. n < length S \<Longrightarrow> x ! n \<in> S ! n)"
       from t1_def(2)[OF this] t2_def(2)[OF this]
-       show "(f + g) x - (interpret_floatarith (Add p1 p2) [x]) \<in> {(l1+l2)..(u1+u2)}"
+       show "(f + g) x - Ipoly x (poly.Add p1 p2) \<in> {(l1+l2)..(u1+u2)}"
         by simp
     qed
 qed
@@ -283,6 +296,98 @@ shows "valid_tm S (f - g) (TMSub t1 t2)"
 using TMAdd_valid[OF assms(1) TMNeg_valid[OF assms(2)]]
 by simp
 
+(* Multiplication is done by approximating the domain with a float interval. 
+   TODO: Prove as soon as the definition of TMMul is finished. *)
+lemma TMMul_valid:
+assumes "valid_tm S f t1"
+assumes "valid_tm S g t2"
+shows "valid_tm S (f * g) (TMMul t1 t2 I)"
+proof-
+  from valid_tmD[OF assms(1)]
+  obtain p1 l1 u1 where t1_def: "t1 = TaylorModel p1 (Ivl l1 u1)" "\<And>x. length x = length S \<Longrightarrow> (\<And>n. n < length S \<Longrightarrow> x ! n \<in> S ! n) \<Longrightarrow> f x - Ipoly x p1 \<in> {l1..u1}"
+    by blast
+  from valid_tmD[OF assms(2)]
+  obtain p2 l2 u2 where t2_def: "t2 = TaylorModel p2 (Ivl l2 u2)" "\<And>x. length x = length S \<Longrightarrow> (\<And>n. n < length S \<Longrightarrow> x ! n \<in> S ! n) \<Longrightarrow> g x - Ipoly x p2 \<in> {l2..u2}"
+    by blast
+    
+  {
+    fix x assume assms: "length x = length S" "(\<And>n. n < length S \<Longrightarrow> x ! n \<in> S ! n)"
+    
+    obtain d1 :: real where d1_def: "d1 \<in> {l1..u1}" "f x - Ipoly x p1 = d1"
+      using t1_def(2)[OF assms] by auto
+    obtain d2 :: real where d2_def: " d2 \<in> {l2..u2}" "g x - Ipoly x p2 = d2"
+      using t2_def(2)[OF assms] by auto
+    
+    have "(f * g) x = f x * g x"
+      by auto
+    also have "... = (d1 + Ipoly x p1) * (d2 + Ipoly x p2)"
+      by (simp add: d1_def(2)[symmetric] d2_def(2)[symmetric])
+    also have "... = Ipoly x p1 * Ipoly x p2 + d1 * Ipoly x p2 + Ipoly x p1 * d2 + d1 * d2"
+      (is "_ = ?a + ?b d1 + ?c d2 + ?d  d1 d2")
+      by (simp add: algebra_simps)
+    finally have f_times_g_eq: "(f * g) x = ?a + ?b d1 + ?c d2 + ?d  d1 d2" .
+    
+    have "\<exists>(d1::real) (d2::real). d1 \<in> {l1..u1} \<and> d2 \<in> {l2..u2} \<and> (f * g) x = ?a + ?b d1 + ?c d2 + ?d  d1 d2"
+      by ((rule exI)+, rule conjI[OF d1_def(1) conjI[OF d2_def(1) f_times_g_eq]])
+  }
+  
+  show "valid_tm S (f * g) (TMMul t1 t2 I)"
+    sorry
+qed
+
+(* Compute taylor models of degree n from floatarith expressions. *)
+fun compute_taylor_model :: "nat \<Rightarrow> real interval list \<Rightarrow> floatarith \<Rightarrow> taylor_model option"
+where "compute_taylor_model _ I (Num c) = Some (TaylorModel (poly.C c) (Ivl 0 0))"
+    | "compute_taylor_model _ I (Var n) = Some (TaylorModel (poly.Bound n) (Ivl 0 0))"
+    | "compute_taylor_model n I (Add a b) = (
+         case (compute_taylor_model n I a, compute_taylor_model n I b) 
+         of (Some t1, Some t2) \<Rightarrow> Some (TMAdd t1 t2) | _ \<Rightarrow> None
+       )"
+    | "compute_taylor_model n I (Minus a) = (
+         case compute_taylor_model n I a of Some t1 \<Rightarrow> Some (TMNeg t1) | _ \<Rightarrow> None
+       )"
+    | "compute_taylor_model n I _ = None"
+    
+lemma
+shows "\<And>t. Some t = compute_taylor_model n I f \<Longrightarrow> valid_tm (map set_of I) (interpret_floatarith f) t"
+apply(induct f rule: compute_taylor_model.induct)
+prefer 3
+proof-
+  fix n I a b t
+  assume assms:
+    "(\<And>t. Some t = compute_taylor_model n I a \<Longrightarrow> valid_tm (map set_of I) (interpret_floatarith a) t)"
+    "(\<And>t. Some t = compute_taylor_model n I b \<Longrightarrow> valid_tm (map set_of I) (interpret_floatarith b) t)"
+    "Some t = compute_taylor_model n I (floatarith.Add a b)"
+    
+  obtain t1 where t1_def: "Some t1 = compute_taylor_model n I a"
+    by (metis (no_types, lifting) assms(3) compute_taylor_model.simps(3) option.case_eq_if option.collapse prod.case)
+  obtain t2 where t2_def: "Some t2 = compute_taylor_model n I b"
+    by (smt assms(3) compute_taylor_model.simps(3) option.case_eq_if option.collapse prod.case)
+    
+  have t_def: "t = TMAdd t1 t2"
+    using assms(3) t1_def t2_def
+    by (metis compute_taylor_model.simps(3) option.case(2) option.inject prod.case)
+  
+  have [simp]: "interpret_floatarith (floatarith.Add a b) = interpret_floatarith a + interpret_floatarith b"
+    by auto
+  show "valid_tm (map set_of I) (interpret_floatarith (floatarith.Add a b)) t"
+    by (simp add: t_def, rule TMAdd_valid[OF assms(1)[OF t1_def] assms(2)[OF t2_def]])
+next
+   fix n I a t
+   assume assms:
+     "\<And>t. Some t = compute_taylor_model n I a \<Longrightarrow> valid_tm (map set_of I) (interpret_floatarith a) t"
+     "Some t = compute_taylor_model n I (Minus a)"
+   have [simp]: "interpret_floatarith (Minus a) = -interpret_floatarith a"
+     by auto
+   
+   obtain t1 where t1_def: "Some t1 = compute_taylor_model n I a"
+     by (metis assms(2) compute_taylor_model.simps(4) option.collapse option.simps(4))
+   have t_def: "t = TMNeg t1"
+     by (metis assms(2) compute_taylor_model.simps(4) option.case(2) option.inject t1_def)
+     
+   show "valid_tm (map set_of I) (interpret_floatarith (Minus a)) t"
+     by (simp add: t_def, rule TMNeg_valid[OF assms(1)[OF t1_def]])
+qed (simp_all add: valid_tm_def)
 
 
 end
