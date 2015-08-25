@@ -3,10 +3,9 @@ imports "Generic_Multivariate_Polynomials"
         "~~/src/HOL/Decision_Procs/Approximation"
         "~~/src/HOL/Library/Function_Algebras"
         "~~/src/HOL/Library/Set_Algebras"
-        (*"/home/christoph/Documents/Studium/Interdisziplinäres Projekt/afp-linode/thys/Affine_Arithmetic/Affine_Arithmetic"*)
 begin
 
-(* I define my own interval type here. TODO: Do I really need to do this? *)
+(* I define my own interval type here. This is so that I can write polynomials with interval coefficients. *)
 datatype 'a interval = Ivl 'a 'a
 
 definition lower :: "'a interval \<Rightarrow> 'a"
@@ -21,22 +20,24 @@ where "set_of i = (case i of (Ivl l u) \<Rightarrow> {l..u})"
 definition prod_of :: "('a::ord) interval \<Rightarrow> 'a \<times> 'a"
 where "prod_of i = (case i of (Ivl l u) \<Rightarrow> (l, u))"
 
-lemmas [simp] = lower_def upper_def set_of_def prod_of_def
+lemmas [simp] = lower_def upper_def
 
-
-(* Type instantiations for intervals. *)
+(* Type instantiations for intervals. This allows us to write and evaluate interval polynomials. *)
 instantiation "interval" :: (plus) plus
 begin
   definition "a + b = Ivl (lower a + lower b) (upper a + upper b)"
   instance ..
 end
-
-instantiation "interval" :: (zero) zero
+instantiation "interval" :: (minus) minus
 begin
-  definition "0 = Ivl 0 0"
+  definition "a - b = Ivl (lower a - upper b) (upper a - lower b)"
   instance ..
 end
-
+instantiation "interval" :: (uminus) uminus
+begin
+  definition "-a = Ivl (-upper a) (-lower a)"
+  instance ..
+end
 instantiation "interval" :: ("{times, ord}") times
 begin
 definition "a * b = Ivl (min (min (lower a * lower b) (upper a * lower b)) 
@@ -44,41 +45,43 @@ definition "a * b = Ivl (min (min (lower a * lower b) (upper a * lower b))
                         (max (max (lower a * lower b) (upper a * lower b)) 
                              (max (lower a * upper b) (upper a * upper b)))"
 instance ..
-
 end
-
+instantiation "interval" :: (zero) zero
+begin
+  definition "0 = Ivl 0 0"
+  instance ..
+end
 instantiation "interval" :: (one) one
 begin
   definition "1 = Ivl 1 1"
   instance ..
 end
-
-instantiation "interval" :: ("{inverse, ord}") inverse
+instantiation "interval" :: ("{inverse,ord}") inverse
 begin
   definition "inverse a = Ivl (min (inverse (lower a)) (inverse (upper a))) (max (inverse (lower a)) (inverse (upper a)))"
   instance ..
 end
 
-lemmas [simp] = plus_interval_def times_interval_def
+instantiation "interval" :: ("{times,one,ord}") power
+begin
+  instance ..
+end
 
 value "Ivl (0::real) 1 * Ivl 0 1"
 value "Ivl (-1::real) 1 * Ivl 0 1"
 value "Ivl (-1::float) 1 * Ivl 0 1"
+value "Ivl (-1::float) 1 + Ivl 0 1"
 
-lemma ivl_add_correct:
-fixes x::real (* TODO: Relax! *)
-assumes "x \<in> {a..b}"
-assumes "y \<in> {c..d}"
-shows "x + y \<in> set_of (Ivl a b + Ivl c d)"
-using assms by simp
+(* Polynomial with interval coefficients. *)
+value "Ipoly [Ivl (Float 4 (-6)) (Float 10 (-6))] (poly.Add (poly.C (Ivl (Float 3 (-5)) (Float 3 (-5)))) (poly.Bound 0))"
 
 lemma ivl_mul_correct:
-fixes x::real (* TODO: Relax! *)
+fixes x::"real" (* TODO: Generalize! *)
 assumes "x \<in> {a..b}"
 assumes "y \<in> {c..d}"
 shows "x * y \<in> set_of (Ivl a b * Ivl c d)"
 using assms
-by (simp, smt mult.commute mult_right_less_imp_less mult_right_mono_neg)
+by (simp add: set_of_def times_interval_def, smt mult.commute mult_right_less_imp_less mult_right_mono_neg)
 
 (* TODO: - For now, I hard-code the precision, because I don't want to carry it around.
            Later, it will become explicit. *)
@@ -130,7 +133,7 @@ proof-
       fix n assume "n < length I"
       from assms(2)[OF this]
       have "i ! n \<in> {(a!n)..(b!n)}"           
-        using `n < length I` by (auto simp: I_def)
+        using `n < length I` by (auto simp: I_def set_of_def)
       moreover have "map real i ! n = real (i ! n)"
         apply(rule List.nth_map)
         using `n < length I` `length I \<le> length i`
@@ -176,10 +179,21 @@ where "poly_map f (poly.C c)      = poly.C (f c)"
     | "poly_map f (poly.Neg a)    = poly.Neg (poly_map f a)"
     | "poly_map f (poly.Pw a n)   = poly.Pw (poly_map f a) n"
     | "poly_map f (poly.CN a n b) = poly.CN (poly_map f a) n (poly_map f b)"
+    
+(* Conversion from plain types to intervals. *)
+definition interval_of :: "'a \<Rightarrow> 'a interval"
+where "interval_of x = Ivl x x"
 
+lemmas [simp] = interval_of_def
+
+declare [[coercion "interval_of :: float \<Rightarrow> float interval"]]
+declare [[coercion "interval_of :: real \<Rightarrow> real interval"]]
 declare [[coercion_map poly_map]]
 
-(* Count the number of parameters of a polynom. *)
+(* Apply float intervals arguments to a float poly. *)
+value "Ipoly [Ivl (Float 4 6) (Float 10 6)] (poly.Add (poly.C (Float 3 5)) (poly.Bound 0))"
+
+(* Count the number of parameters of a polynomial. *)
 fun num_params :: "'a poly \<Rightarrow> nat"
 where "num_params (poly.C c) = 0"
     | "num_params (poly.Bound n)  = Suc n"
@@ -191,21 +205,156 @@ where "num_params (poly.C c) = 0"
     | "num_params (poly.CN a n b) = max (max (num_params a) (num_params b)) (Suc n)"
 
 (* Evaluating a float poly is equivalent to evaluating the corresponding
-   real poly with the corresponding real parameters. *)
+   real poly with the float parameters converted to reals. *)
 lemma Ipoly_real_float_eqiv:
 fixes p::"float poly" and xs::"float list" and r::float
 assumes "num_params p \<le> length xs"
 shows "Ipoly xs (p::real poly) = Ipoly xs p"
-using assms by (induct p, simp_all)
+using assms by (induction p, simp_all)
 
+lemma set_of_add_mono:
+fixes a :: "'a::ordered_ab_group_add"
+assumes "a \<in> set_of A"
+assumes "b \<in> set_of B"
+shows "a + b \<in> set_of (A + B)"
+proof-
+  obtain la ua where A_def: "A = Ivl la ua"
+    using interval.exhaust by auto
+  obtain lb ub where B_def: "B = Ivl lb ub"
+    using interval.exhaust by auto
+  have a_def: "a \<in> {la..ua}"
+    using assms(1) by (simp add: A_def set_of_def)
+  have b_def: "b \<in> {lb..ub}"
+    using assms(2) by (simp add: B_def set_of_def)
+  show ?thesis 
+    using a_def b_def
+    by (simp add: A_def B_def set_of_def plus_interval_def add_mono)
+qed
+
+lemma set_of_minus_mono:
+fixes a :: "'a::ordered_ab_group_add"
+assumes "a \<in> set_of A"
+assumes "b \<in> set_of B"
+shows "a - b \<in> set_of (A - B)"
+proof-
+  obtain la ua where A_def: "A = Ivl la ua"
+    using interval.exhaust by auto
+  obtain lb ub where B_def: "B = Ivl lb ub"
+    using interval.exhaust by auto
+  have a_def: "a \<in> {la..ua}"
+    using assms(1) by (simp add: A_def set_of_def)
+  have b_def: "b \<in> {lb..ub}"
+    using assms(2) by (simp add: B_def set_of_def)
+  
+  show ?thesis 
+    using a_def b_def
+    by (simp add: A_def B_def minus_interval_def set_of_def diff_mono)
+qed
+
+lemma set_of_uminus_mono:
+fixes a :: "'a::ordered_ab_group_add"
+assumes "a \<in> set_of A"
+shows "-a \<in> set_of (-A)"
+proof-
+  obtain la ua where A_def: "A = Ivl la ua"
+    using interval.exhaust by auto
+  have a_def: "a \<in> {la..ua}"
+    using assms(1) by (simp add: A_def set_of_def)
+  
+  show ?thesis 
+    using a_def
+    by (simp add: A_def uminus_interval_def set_of_def)
+qed
+
+lemma set_of_mult_mono:
+fixes a :: "real"
+assumes "a \<in> set_of A"
+assumes "b \<in> set_of B"
+shows "a * b \<in> set_of (A * B)"
+proof-
+  obtain la ua where A_def: "A = Ivl la ua"
+    using interval.exhaust by auto
+  obtain lb ub where B_def: "B = Ivl lb ub"
+    using interval.exhaust by auto
+  have a_def: "a \<in> {la..ua}"
+    using assms(1) by (simp add: A_def set_of_def)
+  have b_def: "b \<in> {lb..ub}"
+    using assms(2) by (simp add: B_def set_of_def)
+    
+  have ineqs: "la \<le> a" "a \<le> ua" "lb \<le> b" "b \<le> ub"
+    using a_def b_def
+    by auto
+    
+  find_theorems "_ <= _ * _ " name: mono
+  thm mult_mono[OF `la \<le> a` `lb \<le> b`]
+      mult_mono[of ua b lb a]
+      mult_mono[of la a, OF `la \<le> a`]
+      mult_mono[of ua a ub b]
+  thm mult_mono mult_mono'
+  thm mult.commute mult_right_less_imp_less mult_right_mono_neg
+  
+  show ?thesis
+    apply(simp add: A_def B_def times_interval_def set_of_def)
+    apply(rule conjI)
+    proof-
+      thm mult_mono[of la a lb b]
+          mult_mono[of ua b lb a]
+          mult_mono[of la b ub a]
+          mult_mono[of ua b ub a]
+      show "min (min (la * lb) (ua * lb)) (min (la * ub) (ua * ub)) \<le> a * b"
+        sorry
+    next
+      show "a * b \<le> max (max (la * lb) (ua * lb)) (max (la * ub) (ua * ub))"
+        sorry
+    qed
+qed
+
+(* TODO: Follows from monotonicity of multiplication. *)
+(*lemma set_of_power_mono:
+fixes a :: "'a::{power,ord}"
+assumes "a \<in> set_of A"
+shows "a^n \<in> set_of (A^n)"
+proof-
+  obtain la ua where A_def: "A = Ivl la ua"
+    using interval.exhaust by auto
+  have a_def: "a \<in> {la..ua}"
+    using assms(1) by (simp add: A_def set_of_def)
+  
+  show ?thesis 
+    using a_def
+    by (simp add: A_def uminus_interval_def set_of_def)
+qed*)
+
+lemma [simp]: "(x::'a::order) \<in> set_of (Ivl x x)"
+  by (simp add: set_of_def)
+
+
+lemma Ipoly_float_poly_interval_args:
+fixes p::"float poly"
+and   x::"float list"
+and   xs::"float interval list"
+assumes "length x = length xs"
+assumes "num_params p \<le> length xs"
+assumes "\<And>n. n < length xs \<Longrightarrow> x!n \<in> set_of (xs!n)"
+shows "Ipoly x p \<in> set_of (Ipoly xs p)"
+using assms
+apply(induction p)
+apply(simp)
+apply(simp)
+apply(simp add: set_of_add_mono)
+apply(simp add: set_of_uminus_mono)
+apply(simp add: set_of_minus_mono)
+apply(simp add: set_of_mult_mono)
+apply(simp_all add: set_of_add_mono set_of_uminus_mono set_of_minus_mono)
+
+oops
 
 (* Taylor models are a pair of a polynomial and an absolute error bound (an interval). *)
 datatype taylor_model = TaylorModel "float poly" "float interval"
 
-(* TODO: Implement! Try to translate a float poly into an floatarith expression and use compute_bound. 
-         Use the fact, that compute_bound can never return None when called on a polygon. *)
+(* Bound a polynomial by simply evaluating it with interval arguments. *)
 fun compute_bound_TM :: "taylor_model \<Rightarrow> float interval list \<Rightarrow> float interval"
-where "compute_bound_TM _ _ = undefined"
+where "compute_bound_TM (TaylorModel p i) Is = Ipoly Is p + i"
 
 (* TODO: Can I simplify my notion of validity? *)
 definition valid_tm :: "real set list \<Rightarrow> (real list \<Rightarrow> real) \<Rightarrow> taylor_model \<Rightarrow> bool"
@@ -281,7 +430,7 @@ proof-
   obtain p2 l2 u2 where t2_def: "t2 = TaylorModel p2 (Ivl l2 u2)" "\<And>x. length x = length S \<Longrightarrow> (\<And>n. n < length S \<Longrightarrow> x ! n \<in> S ! n) \<Longrightarrow> g x - Ipoly x p2 \<in> {l2..u2}"
     by blast
   show "valid_tm S (f + g) (TMAdd t1 t2)"
-    proof(rule, simp add: t1_def(1) t2_def(1))
+    proof(rule, simp add: t1_def(1) t2_def(1) plus_interval_def)
       fix x assume assms: "length x = length S" "(\<And>n. n < length S \<Longrightarrow> x ! n \<in> S ! n)"
       from t1_def(2)[OF this] t2_def(2)[OF this]
        show "(f + g) x - Ipoly x (poly.Add p1 p2) \<in> {(l1+l2)..(u1+u2)}"
@@ -351,7 +500,6 @@ where "compute_taylor_model _ I (Num c) = Some (TaylorModel (poly.C c) (Ivl 0 0)
 lemma
 shows "\<And>t. Some t = compute_taylor_model n I f \<Longrightarrow> valid_tm (map set_of I) (interpret_floatarith f) t"
 apply(induct f rule: compute_taylor_model.induct)
-prefer 3
 proof-
   fix n I a b t
   assume assms:
