@@ -195,6 +195,65 @@ declare [[coercion_map poly_map]]
 (* Apply float interval arguments to a float poly. *)
 value "Ipoly [Ivl (Float 4 (-6)) (Float 10 6)] (poly.Add (poly.C (Float 3 5)) (poly.Bound 0))"
 
+(* Coercing a "float poly" into a "real poly" does not change the structure of the polynomial. *)
+lemma poly_map_real_polyadd:
+fixes p1::"float poly"
+shows "poly_map real (p1 +\<^sub>p p2) = poly_map real p1 +\<^sub>p poly_map real p2"
+apply(induction p1 arbitrary: p2)
+apply(simp_all)[7]
+proof(goals)
+  case (1 x p2)
+    show ?case
+      by(induction p2, simp_all add: real_of_float_eq)
+  next
+  case (2 p3 n1 p4 p2)
+    show ?case
+    apply(induction p2)
+    using 2
+    apply(simp_all add: real_of_float_eq)[7]
+    proof(goals a)
+    case (a p5 n2 p6)
+      show ?case
+      unfolding polyadd.simps(4) poly_map.simps if_distrib[of "poly_map real"]
+      apply(rule if_cong)
+      apply(simp_all add: 2 a, safe)
+      unfolding Let_def if_distrib[of "poly_map real"]
+      apply(rule if_cong)
+      apply(cases "p4 +\<^sub>p p6")
+      by (simp_all add: real_of_float_eq 2[symmetric])
+    qed
+qed
+    
+lemma poly_map_real_polymul:
+fixes p1::"float poly"
+shows "poly_map real (p1 *\<^sub>p p2) = poly_map real p1 *\<^sub>p poly_map real p2"
+apply(induction p1 arbitrary: p2)
+apply(simp_all)[7]
+proof(goals)
+  case (1 x p2)
+    show ?case
+      by(induction p2, simp_all add: real_of_float_eq)
+  next
+  case (2 p3 n1 p4 p2)
+    show ?case
+    apply(induction p2)
+    using 2
+    apply(simp_all add: real_of_float_eq)[7]
+    proof(goals a)
+      case (a p5 n2 p6)
+      show ?case
+      unfolding polymul.simps(4) poly_map.simps if_distrib[of "poly_map real"]
+      apply(rule if_cong)
+      apply(simp)
+      apply(simp add: 2)
+      apply(rule if_cong)
+      apply(simp)
+      apply(simp add: a)
+      using a
+      by (simp add: poly_map_real_polyadd)
+    qed
+qed
+
 (* Count the number of parameters of a polynomial. *)
 fun num_params :: "'a poly \<Rightarrow> nat"
 where "num_params (poly.C c) = 0"
