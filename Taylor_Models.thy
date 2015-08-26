@@ -8,17 +8,17 @@ begin
 (* I define my own interval type here. This is so that I can write polynomials with interval coefficients. *)
 datatype 'a interval = Ivl 'a 'a
 
-definition lower :: "'a interval \<Rightarrow> 'a"
-where "lower i = (case i of (Ivl l u) \<Rightarrow> l)"
+primrec lower :: "'a interval \<Rightarrow> 'a"
+where "lower (Ivl l u) = l"
 
-definition upper :: "'a interval \<Rightarrow> 'a"
-where "upper i = (case i of (Ivl l u) \<Rightarrow> u)"
+primrec upper :: "'a interval \<Rightarrow> 'a"
+where "upper (Ivl l u) = u"
 
-definition set_of :: "('a::ord) interval \<Rightarrow> 'a set"
-where "set_of i = (case i of (Ivl l u) \<Rightarrow> {l..u})"
+primrec set_of :: "('a::ord) interval \<Rightarrow> 'a set"
+where "set_of (Ivl l u) = {l..u}"
 
-definition prod_of :: "('a::ord) interval \<Rightarrow> 'a \<times> 'a"
-where "prod_of i = (case i of (Ivl l u) \<Rightarrow> (l, u))"
+primrec prod_of :: "('a::ord) interval \<Rightarrow> 'a \<times> 'a"
+where "prod_of (Ivl l u) = (l, u)"
 
 lemmas [simp] = lower_def upper_def
 
@@ -71,6 +71,8 @@ value "Ivl (0::real) 1 * Ivl 0 1"
 value "Ivl (-1::real) 1 * Ivl 0 1"
 value "Ivl (-1::float) 1 * Ivl 0 1"
 value "Ivl (-1::float) 1 + Ivl 0 1"
+
+lemmas [simp] = zero_interval_def one_interval_def
 
 (* Polynomial with interval coefficients. *)
 value "Ipoly [Ivl (Float 4 (-6)) (Float 10 (-6))] (poly.Add (poly.C (Ivl (Float 3 (-5)) (Float 3 (-5)))) (poly.Bound 0))"
@@ -190,8 +192,8 @@ declare [[coercion "interval_of :: float \<Rightarrow> float interval"]]
 declare [[coercion "interval_of :: real \<Rightarrow> real interval"]]
 declare [[coercion_map poly_map]]
 
-(* Apply float intervals arguments to a float poly. *)
-value "Ipoly [Ivl (Float 4 6) (Float 10 6)] (poly.Add (poly.C (Float 3 5)) (poly.Bound 0))"
+(* Apply float interval arguments to a float poly. *)
+value "Ipoly [Ivl (Float 4 (-6)) (Float 10 6)] (poly.Add (poly.C (Float 3 5)) (poly.Bound 0))"
 
 (* Count the number of parameters of a polynomial. *)
 fun num_params :: "'a poly \<Rightarrow> nat"
@@ -212,6 +214,7 @@ assumes "num_params p \<le> length xs"
 shows "Ipoly xs (p::real poly) = Ipoly xs p"
 using assms by (induction p, simp_all)
 
+(* Operations on intervals are monotone. *)
 lemma set_of_add_mono:
 fixes a :: "'a::ordered_ab_group_add"
 assumes "a \<in> set_of A"
@@ -267,7 +270,7 @@ proof-
 qed
 
 lemma set_of_mult_mono:
-fixes a :: "real"
+fixes a :: "'a::linordered_idom"
 assumes "a \<in> set_of A"
 assumes "b \<in> set_of B"
 shows "a * b \<in> set_of (A * B)"
@@ -284,70 +287,45 @@ proof-
   have ineqs: "la \<le> a" "a \<le> ua" "lb \<le> b" "b \<le> ub"
     using a_def b_def
     by auto
-    
-  find_theorems "_ <= _ * _ " name: mono
-  thm mult_mono[OF `la \<le> a` `lb \<le> b`]
-      mult_mono[of ua b lb a]
-      mult_mono[of la a, OF `la \<le> a`]
-      mult_mono[of ua a ub b]
-  thm mult_mono mult_mono'
-  thm mult.commute mult_right_less_imp_less mult_right_mono_neg
+  hence ineqs': "-a \<le> -la" "-ua \<le> -a" "-b \<le> -lb" "-ub \<le> -b"
+    by(simp_all)
   
   show ?thesis
-    apply(simp add: A_def B_def times_interval_def set_of_def)
-    apply(rule conjI)
-    proof-
-      thm mult_mono[of la a lb b]
-          mult_mono[of ua b lb a]
-          mult_mono[of la b ub a]
-          mult_mono[of ua b ub a]
-      show "min (min (la * lb) (ua * lb)) (min (la * ub) (ua * ub)) \<le> a * b"
-        sorry
-    next
-      show "a * b \<le> max (max (la * lb) (ua * lb)) (max (la * ub) (ua * ub))"
-        sorry
-    qed
+    using mult_mono[OF ineqs(1) ineqs(3), simplified]
+          mult_mono'[OF ineqs(2) ineqs'(3), simplified]
+          mult_mono'[OF ineqs'(1) ineqs(4), simplified]
+          mult_mono[OF ineqs'(2) ineqs'(4), simplified]
+          mult_mono[OF ineqs'(1) ineqs'(3), simplified]
+          mult_mono'[OF ineqs'(2) ineqs(3), simplified]
+          mult_mono'[OF ineqs(1) ineqs'(4), simplified]
+          mult_mono[OF ineqs(2) ineqs(4), simplified]
+    apply(simp add: A_def B_def times_interval_def set_of_def min_le_iff_disj le_max_iff_disj, safe)
+    by (smt ineqs(1) ineqs(2) le_less not_le order_trans zero_le_mult_iff)+
 qed
-
-(* TODO: Follows from monotonicity of multiplication. *)
-(*lemma set_of_power_mono:
-fixes a :: "'a::{power,ord}"
-assumes "a \<in> set_of A"
-shows "a^n \<in> set_of (A^n)"
-proof-
-  obtain la ua where A_def: "A = Ivl la ua"
-    using interval.exhaust by auto
-  have a_def: "a \<in> {la..ua}"
-    using assms(1) by (simp add: A_def set_of_def)
-  
-  show ?thesis 
-    using a_def
-    by (simp add: A_def uminus_interval_def set_of_def)
-qed*)
 
 lemma [simp]: "(x::'a::order) \<in> set_of (Ivl x x)"
   by (simp add: set_of_def)
 
+lemma set_of_power_mono:
+fixes a :: "'a::linordered_idom"
+assumes "a \<in> set_of A"
+shows "a^n \<in> set_of (A^n)"
+using assms
+by (induction n, simp_all add: set_of_mult_mono)
 
-lemma Ipoly_float_poly_interval_args:
-fixes p::"float poly"
-and   x::"float list"
-and   xs::"float interval list"
+(* Evaluating an "'a poly" with "'a interval" arguments is monotone. *)
+lemma Ipoly_interval_args_mono:
+fixes p::"'a::linordered_idom poly"
+and   x::"'a list"
+and   xs::"'a interval list"
 assumes "length x = length xs"
 assumes "num_params p \<le> length xs"
 assumes "\<And>n. n < length xs \<Longrightarrow> x!n \<in> set_of (xs!n)"
-shows "Ipoly x p \<in> set_of (Ipoly xs p)"
+shows "Ipoly x p \<in> set_of (Ipoly xs (poly_map interval_of p))"
 using assms
 apply(induction p)
-apply(simp)
-apply(simp)
-apply(simp add: set_of_add_mono)
-apply(simp add: set_of_uminus_mono)
-apply(simp add: set_of_minus_mono)
-apply(simp add: set_of_mult_mono)
-apply(simp_all add: set_of_add_mono set_of_uminus_mono set_of_minus_mono)
+by (simp_all add: set_of_add_mono set_of_minus_mono set_of_mult_mono set_of_uminus_mono set_of_power_mono)
 
-oops
 
 (* Taylor models are a pair of a polynomial and an absolute error bound (an interval). *)
 datatype taylor_model = TaylorModel "float poly" "float interval"
