@@ -892,13 +892,10 @@ lemma funpow_shift1_1:
     Ipoly bs (funpow n shift1 (1)\<^sub>p *\<^sub>p p)"
   by (simp add: funpow_shift1)
 
-(* TODO: What makes this proof difficult? *)
 lemma poly_cmul[simp]:
-  fixes p :: "'a::{minus,plus,uminus,zero,power} poly"
+  fixes p :: "'a::comm_ring_1 poly"
   shows "Ipoly bs (poly_cmul c p) = Ipoly bs (Mul (C c) p)"
-  apply (induct p rule: poly_cmul.induct)
-  apply (auto simp add: field_simps)
-  oops
+  by (induct p, simp_all add: field_simps)
   
 lemma behead:
   assumes "isnpolyh p n"
