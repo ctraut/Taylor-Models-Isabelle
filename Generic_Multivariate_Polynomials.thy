@@ -1,6 +1,6 @@
 (*  Title:      Multivariate_Polynomial.thy
     Author:     Amine Chaieb
-    Modified to work on floats, for the use in Taylor models.
+    Modified by Christoph Traut to work on the most general type possible, for the use in Taylor models.
 *)
 
 section \<open>Implementation and verification of multivariate polynomials\<close>
