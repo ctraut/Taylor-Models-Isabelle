@@ -16,6 +16,9 @@ where "upper (Ivl l u) = u"
 primrec mid :: "float interval \<Rightarrow> float"
 where "mid (Ivl l u) = (l + u) * Float 1 (-1)"
 
+primrec proc_of :: "'a interval \<Rightarrow> 'a \<times> 'a"
+where "proc_of (Ivl l u) = (l, u)"
+
 primrec set_of :: "('a::order) interval \<Rightarrow> 'a set"
 where "set_of (Ivl l u) = {l..u}"
 
@@ -25,14 +28,16 @@ where "interval_of x = Ivl x x"
 primrec interval_map :: "('a \<Rightarrow> 'b) \<Rightarrow> 'a interval \<Rightarrow> 'b interval"
 where "interval_map f (Ivl l u) = Ivl (f l) (f u)"
 
-(* TODO: Validity should be intrinsic to the interval type. Is this even possible? *)
-primrec valid_ivl :: "('a::order) interval \<Rightarrow> bool"
-where "valid_ivl (Ivl l u) = (l \<le> u)"
+(* TODO: Non-emptiness should be intrinsic to the interval type,
+         i.e. it should be a true subset of the set of all possible intervals.
+         Is this even possible? *)
+primrec nonempty :: "('a::order) interval \<Rightarrow> bool"
+where "nonempty (Ivl l u) = (l \<le> u)"
 
 lemmas [simp] = lower_def upper_def
 
 lemma mid_in_interval:
-assumes "valid_ivl i"
+assumes "nonempty i"
 shows "mid i \<in> set_of i"
 proof-
   obtain l u where i_def: "i = Ivl l u" using interval.exhaust by auto
@@ -167,7 +172,7 @@ by (simp add: times_interval_def zero_interval_def)
 
 lemma one_times_ivl_left[simp]:
 fixes A :: "'a::linordered_idom interval"
-assumes "valid_ivl A"
+assumes "nonempty A"
 shows "1 * A = A"
 proof-
   obtain l u where [simp]: "A = Ivl l u" using interval.exhaust by auto
@@ -178,7 +183,7 @@ qed
 
 lemma one_times_ivl_right[simp]:
 fixes A :: "'a::linordered_idom interval"
-assumes "valid_ivl A"
+assumes "nonempty A"
 shows "A * 1 = A"
 using one_times_ivl_left[OF assms, unfolded interval_mul_commute]
 by simp
@@ -192,55 +197,55 @@ proof-
 qed  
 
 (* Validity is preserved under arithmetic. *)
-lemma valid_ivl_add:
+lemma nonempty_add:
 fixes A :: "'a::linordered_idom interval"
-assumes "valid_ivl A"
-assumes "valid_ivl B"
-shows "valid_ivl (A + B)"
+assumes "nonempty A"
+assumes "nonempty B"
+shows "nonempty (A + B)"
 proof-
   obtain la ua where A_def: "A = Ivl la ua" using interval.exhaust by auto
   obtain lb ub where B_def: "B = Ivl lb ub" using interval.exhaust by auto
   from assms show ?thesis by (simp add: A_def B_def plus_interval_def)
 qed
 
-lemma valid_ivl_sub:
+lemma nonempty_sub:
 fixes A :: "'a::linordered_idom interval"
-assumes "valid_ivl A"
-assumes "valid_ivl B"
-shows "valid_ivl (A - B)"
+assumes "nonempty A"
+assumes "nonempty B"
+shows "nonempty (A - B)"
 proof-
   obtain la ua where A_def: "A = Ivl la ua" using interval.exhaust by auto
   obtain lb ub where B_def: "B = Ivl lb ub" using interval.exhaust by auto
   from assms show ?thesis by (simp add: A_def B_def minus_interval_def)
 qed
 
-lemma valid_ivl_neg:
+lemma nonempty_neg:
 fixes A :: "'a::linordered_idom interval"
-assumes "valid_ivl A"
-shows "valid_ivl (-A)"
+assumes "nonempty A"
+shows "nonempty (-A)"
 proof-
   obtain la ua where A_def: "A = Ivl la ua" using interval.exhaust by auto
   from assms show ?thesis by (simp add: A_def uminus_interval_def)
 qed
 
 (* Multiplication always returns a valid interval. *)
-lemma valid_ivl_mul[simp]:
+lemma nonempty_mul[simp]:
 fixes A :: "'a::linordered_idom interval"
-shows "valid_ivl (A * B)"
+shows "nonempty (A * B)"
 by (simp add: times_interval_def)
 
-lemma valid_ivl_pow:
+lemma nonempty_pow:
 fixes A :: "'a::linordered_idom interval"
-assumes "valid_ivl A"
-shows "valid_ivl (A ^ n)"
+assumes "nonempty A"
+shows "nonempty (A ^ n)"
 using assms
 by (induction n, simp_all add: one_interval_def)
 
-lemma valid_ivl_subset:
+lemma nonempty_subset:
 fixes A :: "'a::linordered_idom interval"
-assumes "valid_ivl A"
+assumes "nonempty A"
 assumes "set_of A \<subseteq> set_of A'"
-shows "valid_ivl A'"
+shows "nonempty A'"
 proof-
   obtain la ua where [simp]: "A = Ivl la ua" using interval.exhaust by auto
   obtain la' ua' where [simp]: "A' = Ivl la' ua'" using interval.exhaust by auto
@@ -249,9 +254,9 @@ proof-
     by simp
 qed
 
-lemma valid_ivl_nonempty_equiv:
+lemma nonempty_nonempty_equiv:
 fixes A :: "'a::linordered_idom interval"
-shows "valid_ivl A \<longleftrightarrow> set_of A \<noteq> {}"
+shows "nonempty A \<longleftrightarrow> set_of A \<noteq> {}"
 proof-
   obtain la ua where [simp]: "A = Ivl la ua" using interval.exhaust by auto
   from assms show ?thesis by simp
@@ -290,9 +295,9 @@ fixes i::"float interval"
 shows "interval_map real (i ^ n) = interval_map real i ^  n"
 by (cases i, induction n, simp_all add: one_interval_def)
 
-lemma valid_ivl_interval_map_real[simp]:
+lemma nonempty_interval_map_real[simp]:
 fixes i::"float interval"
-shows "valid_ivl (interval_map real i) = valid_ivl i"
+shows "nonempty (interval_map real i) = nonempty i"
 by (induction i, simp_all)
 
 (* Operations on intervals are monotone. *)
@@ -397,8 +402,8 @@ by (induction n, simp_all add: set_of_mult_mono one_interval_def)
 (* TODO: Clean this proof up! *)
 lemma set_of_add_distrib:
 fixes A :: "'a::linordered_idom interval"
-assumes "valid_ivl A"
-assumes "valid_ivl B"
+assumes "nonempty A"
+assumes "nonempty B"
 shows "set_of A + set_of B = set_of (A + B)"
 proof-
   obtain la ua where A_def: "A = Ivl la ua"
@@ -478,18 +483,18 @@ qed
 
 lemma set_of_add_right:
 fixes A :: "'a::linordered_idom interval"
-assumes "valid_ivl A"
-assumes "valid_ivl B"
+assumes "nonempty A"
+assumes "nonempty B"
 assumes "set_of A \<subseteq> set_of A'"
 shows "set_of (A + B) \<subseteq> set_of (A' + B)"
 using assms(3)
 by(simp add: set_of_add_distrib[OF assms(1,2), symmetric]
-             set_of_add_distrib[OF valid_ivl_subset[OF assms(1,3)] assms(2), symmetric] set_plus_mono2)
+             set_of_add_distrib[OF nonempty_subset[OF assms(1,3)] assms(2), symmetric] set_plus_mono2)
 
 lemma set_of_add_left:
 fixes A :: "'a::linordered_idom interval"
-assumes "valid_ivl A"
-assumes "valid_ivl B"
+assumes "nonempty A"
+assumes "nonempty B"
 assumes "set_of B \<subseteq> set_of B'"
 shows "set_of (A + B) \<subseteq> set_of (A + B')"
 using set_of_add_right[OF assms(2) assms(1) assms(3)]
@@ -497,19 +502,19 @@ by (simp add: add.commute)
 
 lemma set_of_add_cong:
 fixes A :: "'a::linordered_idom interval"
-assumes "valid_ivl A"
-assumes "valid_ivl B"
+assumes "nonempty A"
+assumes "nonempty B"
 assumes "set_of A = set_of A'"
 assumes "set_of B = set_of B'"
 shows "set_of (A + B) = set_of (A' + B')"
 unfolding set_of_add_distrib[OF assms(1,2), symmetric] assms(3,4)
 apply(subst set_of_add_distrib)
-using assms(3,4) valid_ivl_subset[OF assms(2)] valid_ivl_subset[OF assms(1)]
+using assms(3,4) nonempty_subset[OF assms(2)] nonempty_subset[OF assms(1)]
 by auto
 
 lemma set_of_add_inc_left:
 fixes A :: "'a::linordered_idom interval"
-assumes "valid_ivl A"
+assumes "nonempty A"
 assumes "set_of A \<subseteq> set_of A'"
 shows "set_of (A + B) \<subseteq> set_of (A' + B)"
 proof
@@ -529,7 +534,7 @@ qed
 
 lemma set_of_add_inc_right:
 fixes A :: "'a::linordered_idom interval"
-assumes "valid_ivl B"
+assumes "nonempty B"
 assumes "set_of B \<subseteq> set_of B'"
 shows "set_of (A + B) \<subseteq> set_of (A + B')"
 using set_of_add_inc_left[OF assms]
@@ -537,8 +542,8 @@ by (simp add: add.commute)
 
 lemma set_of_add_inc:
 fixes A :: "'a::linordered_idom interval"
-assumes "valid_ivl A"
-assumes "valid_ivl B"
+assumes "nonempty A"
+assumes "nonempty B"
 assumes "set_of A \<subseteq> set_of A'"
 assumes "set_of B \<subseteq> set_of B'"
 shows "set_of (A + B) \<subseteq> set_of (A' + B')"
@@ -548,7 +553,7 @@ by auto
 
 lemma set_of_neg_inc:
 fixes A :: "'a::linordered_idom interval"
-assumes "valid_ivl A"
+assumes "nonempty A"
 assumes "set_of A \<subseteq> set_of A'"
 shows "set_of (-A) \<subseteq> set_of (-A')"
 proof-
@@ -561,7 +566,7 @@ qed
 
 lemma set_of_sub_inc_left:
 fixes A :: "'a::linordered_idom interval"
-assumes "valid_ivl A"
+assumes "nonempty A"
 assumes "set_of A \<subseteq> set_of A'"
 shows "set_of (A - B) \<subseteq> set_of (A' - B)"
 proof-
@@ -576,14 +581,14 @@ qed
 
 lemma set_of_sub_inc_right:
 fixes A :: "'a::linordered_idom interval"
-assumes "valid_ivl B"
+assumes "nonempty B"
 assumes "set_of B \<subseteq> set_of B'"
 shows "set_of (A - B) \<subseteq> set_of (A - B')"
 proof-
   have "set_of (A - B) = set_of (A + (-B))"
     by (simp add: uminus_interval_def minus_interval_def plus_interval_def)
   also have "... \<subseteq> set_of (A + (-B'))"
-    using assms by (simp add: set_of_add_inc_right valid_ivl_neg set_of_neg_inc)
+    using assms by (simp add: set_of_add_inc_right nonempty_neg set_of_neg_inc)
   also have "... \<subseteq> set_of (A - B')"
     by (simp add: uminus_interval_def minus_interval_def plus_interval_def)
   finally show ?thesis .
@@ -591,8 +596,8 @@ qed
 
 lemma set_of_sub_inc:
 fixes A :: "'a::linordered_idom interval"
-assumes "valid_ivl A"
-assumes "valid_ivl B"
+assumes "nonempty A"
+assumes "nonempty B"
 assumes "set_of A \<subseteq> set_of A'"
 assumes "set_of B \<subseteq> set_of B'"
 shows "set_of (A - B) \<subseteq> set_of (A' - B')"
@@ -626,8 +631,8 @@ qed
 (* TODO: Clean up this proof. Does this really only hold for fields? *)
 lemma set_of_mult_distrib:
 fixes A :: "'a::linordered_field interval"
-assumes "valid_ivl A"
-assumes "valid_ivl B"
+assumes "nonempty A"
+assumes "nonempty B"
 shows "set_of (A * B) = set_of A * set_of B"
 proof-
   obtain la ua where A_def[simp]: "A = Ivl la ua" using interval.exhaust by auto
@@ -889,7 +894,7 @@ qed
 
 lemma set_of_mul_inc_left:
 fixes A :: "'a::linordered_idom interval"
-assumes "valid_ivl A"
+assumes "nonempty A"
 assumes "set_of A \<subseteq> set_of A'"
 shows "set_of (A * B) \<subseteq> set_of (A' * B)"
 proof
@@ -912,7 +917,7 @@ qed
 
 lemma set_of_mul_inc_right:
 fixes A :: "'a::linordered_idom interval"
-assumes "valid_ivl B"
+assumes "nonempty B"
 assumes "set_of B \<subseteq> set_of B'"
 shows "set_of (A * B) \<subseteq> set_of (A * B')"
 unfolding interval_mul_commute[of A]
@@ -920,8 +925,8 @@ by (rule set_of_mul_inc_left[OF assms])
 
 lemma set_of_mul_inc:
 fixes A :: "'a::linordered_idom interval"
-assumes "valid_ivl A"
-assumes "valid_ivl B"
+assumes "nonempty A"
+assumes "nonempty B"
 assumes "set_of A \<subseteq> set_of A'"
 assumes "set_of B \<subseteq> set_of B'"
 shows "set_of (A * B) \<subseteq> set_of (A' * B')" 
@@ -930,11 +935,11 @@ by auto
 
 lemma set_of_pow_inc:
 fixes A :: "'a::linordered_idom interval"
-assumes "valid_ivl A"
+assumes "nonempty A"
 assumes "set_of A \<subseteq> set_of A'"
 shows "set_of (A^n) \<subseteq> set_of (A'^n)"
 using assms
-by (induction n, simp_all add: valid_ivl_pow set_of_mul_inc)
+by (induction n, simp_all add: nonempty_pow set_of_mul_inc)
 
 lemma set_of_distrib_left:
 fixes A1 :: "'a::linordered_idom interval"
@@ -944,21 +949,21 @@ by (rule set_of_distrib_right[unfolded interval_mul_commute])
 
 lemma set_of_distrib_right_left:
 fixes A1 :: "'a::linordered_idom interval"
-assumes "valid_ivl A1"
-assumes "valid_ivl A2"
-assumes "valid_ivl B1"
-assumes "valid_ivl B2"
+assumes "nonempty A1"
+assumes "nonempty A2"
+assumes "nonempty B1"
+assumes "nonempty B2"
 shows "set_of ((A1 + A2) * (B1 + B2)) \<subseteq> set_of (A1 * B1 + A1 * B2 + A2 * B1 + A2 * B2)"
 proof-
   have "set_of ((A1 + A2) * (B1 + B2)) \<subseteq> set_of (A1 * (B1 + B2) + A2 * (B1 + B2))"
     by (rule set_of_distrib_right)
   also have "... \<subseteq> set_of ((A1 * B1 + A1 * B2) + A2 * (B1 + B2))"
     apply(rule set_of_add_inc_left)
-    apply(simp add: assms(1) assms(3) assms(4) valid_ivl_add)
+    apply(simp add: assms(1) assms(3) assms(4) nonempty_add)
     by (rule set_of_distrib_left)
   also have "... \<subseteq> set_of ((A1 * B1 + A1 * B2) + (A2 * B1 + A2 * B2))"
     apply(rule set_of_add_inc_right)
-    apply(simp add: assms(2) assms(3) assms(4) valid_ivl_add)
+    apply(simp add: assms(2) assms(3) assms(4) nonempty_add)
     by (rule set_of_distrib_left)
   finally show ?thesis
     by (simp add: add.assoc)
