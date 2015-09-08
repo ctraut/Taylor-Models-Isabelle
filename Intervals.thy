@@ -546,6 +546,60 @@ using set_of_add_inc_left[OF assms(1) assms(3)]
       set_of_add_inc_right[OF assms(2) assms(4)]
 by auto
 
+lemma set_of_neg_inc:
+fixes A :: "'a::linordered_idom interval"
+assumes "valid_ivl A"
+assumes "set_of A \<subseteq> set_of A'"
+shows "set_of (-A) \<subseteq> set_of (-A')"
+proof-
+  obtain la ua where A_def: "A = Ivl la ua" using interval.exhaust by auto
+  obtain la' ua' where A'_def: "A' = Ivl la' ua'" using interval.exhaust by auto
+  
+  from assms show ?thesis
+    by (simp add: A_def A'_def uminus_interval_def)
+qed
+
+lemma set_of_sub_inc_left:
+fixes A :: "'a::linordered_idom interval"
+assumes "valid_ivl A"
+assumes "set_of A \<subseteq> set_of A'"
+shows "set_of (A - B) \<subseteq> set_of (A' - B)"
+proof-
+  have "set_of (A - B) = set_of (A + (-B))"
+    by (simp add: uminus_interval_def minus_interval_def plus_interval_def)
+  also have "... \<subseteq> set_of (A' + (-B))"
+    using assms by (rule set_of_add_inc_left)
+  also have "... = set_of (A' - B)"
+    by (simp add: uminus_interval_def minus_interval_def plus_interval_def)
+  finally show ?thesis .
+qed
+
+lemma set_of_sub_inc_right:
+fixes A :: "'a::linordered_idom interval"
+assumes "valid_ivl B"
+assumes "set_of B \<subseteq> set_of B'"
+shows "set_of (A - B) \<subseteq> set_of (A - B')"
+proof-
+  have "set_of (A - B) = set_of (A + (-B))"
+    by (simp add: uminus_interval_def minus_interval_def plus_interval_def)
+  also have "... \<subseteq> set_of (A + (-B'))"
+    using assms by (simp add: set_of_add_inc_right valid_ivl_neg set_of_neg_inc)
+  also have "... \<subseteq> set_of (A - B')"
+    by (simp add: uminus_interval_def minus_interval_def plus_interval_def)
+  finally show ?thesis .
+qed
+
+lemma set_of_sub_inc:
+fixes A :: "'a::linordered_idom interval"
+assumes "valid_ivl A"
+assumes "valid_ivl B"
+assumes "set_of A \<subseteq> set_of A'"
+assumes "set_of B \<subseteq> set_of B'"
+shows "set_of (A - B) \<subseteq> set_of (A' - B')"
+using set_of_sub_inc_left[OF assms(1) assms(3)]
+      set_of_sub_inc_right[OF assms(2) assms(4)]
+by auto
+
 lemma set_of_distrib_right:
 fixes A1 :: "'a::linordered_idom interval"
 shows "set_of ((A1 + A2) * B) \<subseteq> set_of (A1 * B + A2 * B)"
@@ -873,6 +927,14 @@ assumes "set_of B \<subseteq> set_of B'"
 shows "set_of (A * B) \<subseteq> set_of (A' * B')" 
 using set_of_mul_inc_right[OF assms(2,4)] set_of_mul_inc_left[OF assms(1,3)]
 by auto
+
+lemma set_of_pow_inc:
+fixes A :: "'a::linordered_idom interval"
+assumes "valid_ivl A"
+assumes "set_of A \<subseteq> set_of A'"
+shows "set_of (A^n) \<subseteq> set_of (A'^n)"
+using assms
+by (induction n, simp_all add: valid_ivl_pow set_of_mul_inc)
 
 lemma set_of_distrib_left:
 fixes A1 :: "'a::linordered_idom interval"

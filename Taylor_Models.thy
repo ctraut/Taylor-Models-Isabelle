@@ -264,6 +264,43 @@ using assms
 apply(induction p)
 by (simp_all add: set_of_add_mono set_of_minus_mono set_of_mult_mono set_of_uminus_mono set_of_power_mono)
 
+lemma Ipoly_interval_args_inc_mono:
+fixes p::"'a::linordered_idom poly"
+and   I::"'a interval list" and J::"'a interval list"
+assumes "length I = length J"
+assumes "num_params p \<le> length I"
+assumes "\<And>n. n < length I \<Longrightarrow> set_of (I!n) \<subseteq> set_of (J!n)"
+assumes "\<And>n. n < length I \<Longrightarrow> valid_ivl (I!n)"
+shows "set_of (Ipoly I (poly_map interval_of p)) \<subseteq> set_of (Ipoly J (poly_map interval_of p))"
+proof-
+  have "?thesis \<and> valid_ivl (Ipoly I (poly_map interval_of p))"
+  using assms(2)
+  apply(induction p)
+  using assms(3,4)
+  apply(simp_all)[2]
+  proof-
+    case (Add pl pr)
+    show ?case using Add by (simp add: set_of_add_inc valid_ivl_add)
+  next
+    case (Sub pl pr)
+    show ?case using Sub by (simp add: set_of_sub_inc valid_ivl_sub)
+  next
+    case (Mul pl pr)
+    show ?case using Mul by (simp add: set_of_mul_inc)
+  next
+    case (Neg p)
+    show ?case using Neg by (simp add: set_of_neg_inc valid_ivl_neg)
+  next
+    case (Pw p n)
+    show ?case using Pw by (simp add: set_of_pow_inc valid_ivl_pow)
+  next
+    case (CN pl n pr)
+    show ?case using CN assms(3,4) by (simp add: valid_ivl_add set_of_add_inc set_of_mul_inc)
+  qed
+  thus ?thesis by simp
+qed
+                            
+
 (* Taylor models are a pair of a polynomial and an absolute error bound (an interval). *)
 datatype taylor_model = TaylorModel "float poly" "float interval"
 
@@ -1148,7 +1185,7 @@ by (induction n, simp_all)
 lemma tm_comp_valid:
 assumes I_valid: "(\<And>n. n < length I \<Longrightarrow> valid_ivl (I ! n))"
 assumes gI_def: "\<And>x. length x = length I \<Longrightarrow> (\<forall>n<length I. x!n \<in> set_of (I!n)) \<Longrightarrow> g x \<in> set_of gI"
-assumes t1_def: "valid_tm [gI] (\<lambda>x. f (hd x)) t1"
+assumes t1_def: "valid_tm [gI] (\<lambda>x. f (x ! 0)) t1"
 assumes t2_def: "valid_tm I g t2"
 shows "valid_tm I (f o g) (tm_comp t1 t2 I)"
 proof-
@@ -1161,7 +1198,7 @@ proof-
     "\<And>x. length x = length I \<Longrightarrow> \<forall>n<length I. x ! n \<in> set_of (interval_map real (I ! n))
           \<Longrightarrow> f (g x) - Ipoly [g x] (poly_map real pf) \<in> set_of ef"
       using gI_def
-      by (simp_all add: t1_decomp, metis length_Cons list.sel(1) list.size(3) nth_Cons_0)
+      by (simp_all add: t1_decomp, metis length_Cons list.size(3) nth_Cons_0)
       
   from t2_def have t2_valid:
     "valid_ivl eg"
@@ -1227,73 +1264,137 @@ qed
 (* Compute taylor models of degree n from floatarith expressions.
    TODO: For now, this returns an option. This will change as soon as 
          all of floatarith can be converted to a taylor model. *)
-fun compute_tm :: "nat \<Rightarrow> float interval list \<Rightarrow> floatarith \<Rightarrow> taylor_model option"
-where "compute_tm _ I (Num c) = Some (tm_const c)"
-    | "compute_tm _ I (Var n) = Some (tm_id n)"
-    | "compute_tm n I (Add a b) = (
-         case (compute_tm n I a, compute_tm n I b) 
-         of (Some t1, Some t2) \<Rightarrow> Some (tm_add t1 t2) | _ \<Rightarrow> None)"
-    | "compute_tm n I (Minus a) = map_option (\<lambda>t. tm_neg t) (compute_tm n I a)"
-    | "compute_tm n I _ = None"
+fun compute_tm :: "nat \<Rightarrow> float interval list \<Rightarrow> float list \<Rightarrow> floatarith \<Rightarrow> taylor_model option"
+where "compute_tm _ I _ (Num c) = Some (tm_const c)"
+    | "compute_tm _ I _ (Var n) = Some (tm_id n)"
+    | "compute_tm n I a (Add l r) = (
+         case (compute_tm n I a l, compute_tm n I a r) 
+         of (Some t1, Some t2) \<Rightarrow> Some (tm_add t1 t2)
+          | _ \<Rightarrow> None)"
+    | "compute_tm n I a (Minus f) = map_option (\<lambda>t. tm_neg t) (compute_tm n I a f)"
+    | "compute_tm n I a (Cos f) = (
+         case compute_tm n I a f
+         of Some t2 \<Rightarrow> (
+           case tm_floatarith n (compute_bound_tm t2 I) (mid (compute_bound_tm t2 a)) (Cos (Var 0))
+           of Some t1 \<Rightarrow> Some (tm_comp t1 t2 I)
+           | _ \<Rightarrow> None)
+         | _ \<Rightarrow> None)"
+    | "compute_tm _ _ _ _ = None"
+    
+term "(\<lambda>t2. map_option (\<lambda>t1. tm_comp t1 t2 I) (tm_floatarith n (compute_bound_tm t2 I) (mid (compute_bound_tm t2 a)) (Cos (Var 0))))"
 
 lemma compute_tm_valid:
-assumes "num_vars f \<le> length I"
-assumes "Some t = compute_tm n I f"
+assumes "0 < n"
+assumes num_vars_f: "num_vars f \<le> length I"
+assumes valid_I: "\<And>n. n < length I \<Longrightarrow> valid_ivl (I ! n)"
+assumes length_a: "length a = length I"
+assumes a_in_I: "\<And>n. n < length I \<Longrightarrow> a ! n \<in> set_of (I ! n)"
+assumes t_def: "Some t = compute_tm n I a f"
 shows "valid_tm I (interpret_floatarith f) t"
-using assms
+using num_vars_f t_def
 proof(induct f arbitrary: t)
-case (Add a b t)
-  obtain t1 where t1_def: "Some t1 = compute_tm n I a"
+  case (Add l r t)
+  obtain t1 where t1_def: "Some t1 = compute_tm n I a l"
     by (metis (no_types, lifting) Add(4) compute_tm.simps(3) option.case_eq_if option.collapse prod.case)
-  obtain t2 where t2_def: "Some t2 = compute_tm n I b"
+  obtain t2 where t2_def: "Some t2 = compute_tm n I a r"
     by (smt Add(4) compute_tm.simps(3) option.case_eq_if option.collapse prod.case)
   have t_def: "t = tm_add t1 t2"
     using Add(4) t1_def t2_def
     by (metis compute_tm.simps(3) option.case(2) option.inject prod.case)
   
-  have [simp]: "interpret_floatarith (floatarith.Add a b) = interpret_floatarith a + interpret_floatarith b"
+  have [simp]: "interpret_floatarith (floatarith.Add l r) = interpret_floatarith l + interpret_floatarith r"
     by auto
-  show "valid_tm I (interpret_floatarith (floatarith.Add a b)) t"
+  show "valid_tm I (interpret_floatarith (floatarith.Add l r)) t"
     apply(simp add: t_def)
     apply(rule tm_add_valid[OF Add(1)[OF _ t1_def] Add(2)[OF _ t2_def]])
     using Add(3) by auto
 next
-case (Minus a t)
-   have [simp]: "interpret_floatarith (Minus a) = -interpret_floatarith a"
-     by auto
+  case (Minus f t)
+  have [simp]: "interpret_floatarith (Minus f) = -interpret_floatarith f"
+    by auto
    
-   obtain t1 where t1_def: "Some t1 = compute_tm n I a"
-     by (metis Minus.prems(2) compute_tm.simps(4) map_option_eq_Some)
-   have t_def: "t = tm_neg t1"
-     by (metis Minus.prems(2) compute_tm.simps(4) option.inject option.simps(9) t1_def)
-     
-   show "valid_tm I (interpret_floatarith (Minus a)) t"
-     apply(simp add: t_def, rule tm_neg_valid[OF Minus(1)[OF _ t1_def]])
-     using Minus(2) by auto
+  obtain t1 where t1_def: "Some t1 = compute_tm n I a f"
+    by (metis Minus.prems(2) compute_tm.simps(4) map_option_eq_Some)
+  have t_def: "t = tm_neg t1"
+    by (metis Minus.prems(2) compute_tm.simps(4) option.inject option.simps(9) t1_def)
+  
+  show "valid_tm I (interpret_floatarith (Minus f)) t"
+    apply(simp add: t_def, rule tm_neg_valid[OF Minus(1)[OF _ t1_def]])
+    using Minus(2) by auto
+next
+  case (Cos f t)
+  obtain tm_f where tm_f_def: "Some tm_f = compute_tm n I a f"
+    using Cos(3)[unfolded compute_tm.simps]
+    by (metis (no_types, lifting) option.case_eq_if option.collapse)
+  then obtain tm_cos where tm_cos_def: "Some tm_cos = tm_floatarith n (compute_bound_tm tm_f I) (mid (compute_bound_tm tm_f (map interval_of a))) (Cos (Var 0))"
+    using Cos(3)[unfolded compute_tm.simps]
+    by (metis (no_types, lifting) option.case_eq_if option.collapse option.simps(5))
+  have t_decomp: "t = tm_comp tm_cos tm_f I"
+    using Cos(3) tm_f_def[symmetric] tm_cos_def[symmetric]
+    by auto
+  have valid_tm_tm_f: "valid_tm I (interpret_floatarith f) tm_f"
+    using Cos(1)[OF Cos(2)[simplified] tm_f_def] .
+    
+  obtain tm_f_p tm_f_e where tm_f_decomp: "tm_f = TaylorModel tm_f_p tm_f_e"
+    using taylor_model.exhaust by metis
+  
+  have "mid (compute_bound_tm tm_f (map interval_of a)) \<in> set_of (compute_bound_tm tm_f (map interval_of a))"
+    apply(rule mid_in_interval)
+    using valid_tm_tm_f length_a
+    apply(simp add: tm_f_decomp)
+    apply(rule valid_ivl_add[OF valid_ivl_Ipoly])
+    by (simp_all add: valid_ivl_add[OF valid_ivl_Ipoly])
+  also have "... \<subseteq> set_of (compute_bound_tm tm_f I)"
+    using length_a valid_tm_tm_f a_in_I
+    apply(simp add: tm_f_decomp)
+    apply(rule set_of_add_inc_left[OF valid_ivl_Ipoly])
+    apply(simp_all add: tm_f_decomp)
+    apply(rule Ipoly_interval_args_inc_mono)
+    by simp_all
+  finally have a1: "mid (compute_bound_tm tm_f (map interval_of a)) \<in> set_of (compute_bound_tm tm_f I)"
+    .
+  have a2: "valid_tm [compute_bound_tm tm_f I] (\<lambda>x. cos (x ! 0)) tm_cos"
+    using tm_floatarith_valid[OF `0 < n` a1 _ tm_cos_def, simplified]
+    by auto
+    
+  show ?case
+    unfolding t_decomp
+    using tm_comp_valid[OF valid_I _ a2 Cos(1)[OF _ tm_f_def]]
+          compute_bound_tm_correct[OF Cos(1)[OF _ tm_f_def]]
+          tm_floatarith_valid[OF `0 < n` a1 _ tm_cos_def] Cos.prems(1)
+    by auto
 qed (simp_all add: valid_tm_def)
 
 (* Compute some taylor models. *)
-value "the (compute_tm 10 [Ivl 0 1] (Num 2))"
-value "the (compute_tm 10 [Ivl 0 1] (Var 0))"
-value "the (compute_tm 10 [Ivl 0 1, Ivl 0 1] (Add (Var 0) (Var 1)))"
+value "the (compute_tm 7 [Ivl 0 2] [1] (Num 2))"
+value "the (compute_tm 7 [Ivl 0 2] [1] (Var 0))"
+value "the (compute_tm 7 [Ivl 0 2, Ivl 0 2] [1,1] (Add (Var 0) (Var 1)))"
+(* TODO: This is far too slow! *)
+value "the (compute_tm 5 [Ivl (-1) 1] [0] (Cos (Var 0)))"
 
 (* Automatically find interval bounds for floatarith expressions. *)
 fun compute_ivl_bound :: "nat \<Rightarrow> float interval list \<Rightarrow> floatarith \<Rightarrow> float interval option"
-where "compute_ivl_bound n I f = (case compute_tm n I f of None \<Rightarrow> None | Some t \<Rightarrow> Some (compute_bound_tm t I))"
+where "compute_ivl_bound n I f = (case compute_tm n I (map mid I) f of None \<Rightarrow> None | Some t \<Rightarrow> Some (compute_bound_tm t I))"
 
 (* Automatically computed bounds are correct. *)
 lemma compute_ivl_bound_correct:
+assumes "0 < n"
 assumes "num_vars f \<le> length I"
-assumes "Some B = compute_ivl_bound n I f"
-assumes "\<And>n. n < length I \<Longrightarrow> x!n \<in> set_of (I!n)"
+assumes B_def: "Some B = compute_ivl_bound n I f"
+assumes x_in_I: "\<And>n. n < length I \<Longrightarrow> x!n \<in> set_of (I!n)"
+assumes valid_I: "\<And>n. n < length I \<Longrightarrow> valid_ivl (I!n)"
 assumes "length x = length I"
 shows "interpret_floatarith f x \<in> set_of B"
 proof-
   (* Since we have a bound B, there must have been a taylor model used to compute it. *)
-  from assms(2) obtain t where B_def: "B = compute_bound_tm t I" 
-                           and t_def: "Some t = compute_tm n I f"
+  from assms(3) obtain t where B_def: "B = compute_bound_tm t I" 
+                           and t_def: "Some t = compute_tm n I (map mid I) f"
     by (simp, metis (mono_tags, lifting) option.case_eq_if option.collapse option.distinct(1) option.inject)
-  from compute_bound_tm_correct[OF compute_tm_valid[OF assms(1) t_def] assms(3,4)]
+  
+  have a_props: "length (map mid I) = length I" "\<And>n. n < length I \<Longrightarrow> (map mid I) ! n \<in> set_of (I ! n)"
+    by (auto simp: mid_in_interval valid_I)
+    
+  from compute_bound_tm_correct[OF compute_tm_valid[OF `0 < n` assms(2) valid_I a_props t_def, simplified] x_in_I assms(6)]
   show ?thesis
     by (simp add: B_def)
 qed
