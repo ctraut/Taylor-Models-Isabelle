@@ -36,6 +36,20 @@ where "nonempty (Ivl l u) = (l \<le> u)"
 
 lemmas [simp] = lower_def upper_def
 
+(* Definitions that make some common assumptions about lists of intervals easier to write. *)
+definition all_in :: "'a::order list \<Rightarrow> 'a interval list \<Rightarrow> bool"
+(infix "(all'_in)" 50)
+where "x all_in I = (length x = length I \<and> (\<forall>i < length I. x!i \<in> set_of (I!i)))"
+
+definition all_subset :: "'a::order interval list \<Rightarrow> 'a interval list \<Rightarrow> bool"
+(infix "(all'_subset)" 50)
+where "I all_subset J = (length I = length J \<and> (\<forall>i < length I. set_of (I!i) \<subseteq> set_of (J!i)))"
+
+definition all_nonempty ::"'a::order interval list \<Rightarrow> bool"
+where "all_nonempty I = (\<forall>i < length I. nonempty (I!i))"
+
+lemmas [simp] = all_in_def all_subset_def all_nonempty_def
+
 lemma mid_in_interval:
 assumes "nonempty i"
 shows "mid i \<in> set_of i"

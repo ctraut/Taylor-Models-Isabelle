@@ -1,11 +1,14 @@
 theory Taylor_Models
 imports "Intervals"
         "Horner_Eval"
-        "Generic_Multivariate_Polynomials"
+        "Poly_Ex"
+        "Taylor_Models_Misc"
         "~~/src/HOL/Decision_Procs/Approximation"
         "~~/src/HOL/Library/Function_Algebras"
         "~~/src/HOL/Library/Set_Algebras"
 begin
+
+section \<open>Multivariate Taylor Models\<close>
 
 (* Trying out arithmetic on intervals and polynomials with interval coefficients. *)
 value "Ivl (-1::float) 1 + Ivl 0 1"
@@ -16,9 +19,10 @@ value "Ivl (-1::real) 1 * Ivl 0 1"
 value "Ivl (-1::float) 1 * Ivl 0 1"
 value "Ipoly [Ivl (Float 4 (-6)) (Float 10 (-6))] (poly.Add (poly.C (Ivl (Float 3 (-5)) (Float 3 (-5)))) (poly.Bound 0))"
 
-(* Computing interval bounds on arithmetic expressions. 
-   TODO: - For now, I hard-code the precision, because I don't want to pass it around.
-           Later, it will become explicit. *)
+
+subsection \<open>Computing interval bounds on arithmetic expressions\<close>
+
+(* TODO: For now, I hard-code the precision, because I don't want to pass it around. *)
 definition prec::nat where "prec=24"
 fun compute_bound :: "floatarith \<Rightarrow> float interval list \<Rightarrow> float interval option"
 where "compute_bound p I = (case approx prec p (map (Some o proc_of) I) of Some (a, b) \<Rightarrow> (if a \<le> b then Some (Ivl a b) else None) | _ \<Rightarrow> None)"
@@ -37,20 +41,6 @@ proof-
     apply(simp add: lu_def)
     by (metis less_eq_float.rep_eq nonempty.simps option.distinct(1) option.sel)
 qed
-
-(* Definitions that make some common assumptions easier to write. *)
-definition all_in :: "'a::order list \<Rightarrow> 'a interval list \<Rightarrow> bool"
-(infix "(all'_in)" 50)
-where "x all_in I = (length x = length I \<and> (\<forall>i < length I. x!i \<in> set_of (I!i)))"
-
-definition all_subset :: "'a::order interval list \<Rightarrow> 'a interval list \<Rightarrow> bool"
-(infix "(all'_subset)" 50)
-where "I all_subset J = (length I = length J \<and> (\<forall>i < length I. set_of (I!i) \<subseteq> set_of (J!i)))"
-
-definition all_nonempty ::"'a::order interval list \<Rightarrow> bool"
-where "all_nonempty I = (\<forall>i < length I. nonempty (I!i))"
-
-lemmas [simp] = all_in_def all_subset_def all_nonempty_def
 
 lemma compute_bound_correct:
 fixes i::"real list"
@@ -128,192 +118,8 @@ proof-
     using approx by (auto simp: ivl_def)
 qed
 
-(* Conversion map for poly. *)
-fun poly_map :: "('a \<Rightarrow> 'b) \<Rightarrow> 'a poly \<Rightarrow> 'b poly"
-where "poly_map f (poly.C c)      = poly.C (f c)"
-    | "poly_map _ (poly.Bound n)  = poly.Bound n"
-    | "poly_map f (poly.Add a b)  = poly.Add (poly_map f a) (poly_map f b)"
-    | "poly_map f (poly.Sub a b)  = poly.Sub (poly_map f a) (poly_map f b)"
-    | "poly_map f (poly.Mul a b)  = poly.Mul (poly_map f a) (poly_map f b)"
-    | "poly_map f (poly.Neg a)    = poly.Neg (poly_map f a)"
-    | "poly_map f (poly.Pw a n)   = poly.Pw (poly_map f a) n"
-    | "poly_map f (poly.CN a n b) = poly.CN (poly_map f a) n (poly_map f b)"
-    
-(* Coercions on intervals. *)
 
-declare [[coercion_map poly_map]]
-
-(* Apply float interval arguments to a float poly. *)
-value "Ipoly [Ivl (Float 4 (-6)) (Float 10 6)] (poly.Add (poly.C (Float 3 5)) (poly.Bound 0))"
-
-(* Coercing a "float poly" into a "real poly" is a homomorphism. *)
-lemma poly_map_real_polyadd:
-fixes p1::"float poly"
-shows "poly_map real (p1 +\<^sub>p p2) = poly_map real p1 +\<^sub>p poly_map real p2"
-apply(induction p1 arbitrary: p2)
-apply(simp_all)[7]
-proof(goals)
-  case (1 x p2)
-    show ?case
-      by(induction p2, simp_all add: real_of_float_eq)
-next
-  case (2 p3 n1 p4 p2)
-    show ?case
-    apply(induction p2)
-    using 2
-    apply(simp_all add: real_of_float_eq)[7]
-    proof(goals a)
-      case (a p5 n2 p6)
-      show ?case
-      unfolding polyadd.simps(4) poly_map.simps if_distrib[of "poly_map real"]
-      apply(rule if_cong)
-      apply(simp_all add: 2 a, safe)
-      unfolding Let_def if_distrib[of "poly_map real"]
-      apply(rule if_cong)
-      apply(cases "p4 +\<^sub>p p6")
-      by (simp_all add: real_of_float_eq 2[symmetric])
-    qed
-qed
-    
-lemma poly_map_real_polymul:
-fixes p1::"float poly"
-shows "poly_map real (p1 *\<^sub>p p2) = poly_map real p1 *\<^sub>p poly_map real p2"
-apply(induction p1 arbitrary: p2)
-apply(simp_all)[7]
-proof(goals)
-  case (1 x p2)
-    show ?case
-      by(induction p2, simp_all add: real_of_float_eq)
-next
-  case (2 p3 n1 p4 p2)
-    show ?case
-    apply(induction p2)
-    using 2
-    apply(simp_all add: real_of_float_eq)[7]
-    proof(goals a)
-      case (a p5 n2 p6)
-      show ?case
-      unfolding polymul.simps(4) poly_map.simps if_distrib[of "poly_map real"]
-      apply(rule if_cong)
-      apply(simp)
-      apply(simp add: 2)
-      apply(rule if_cong)
-      apply(simp)
-      apply(simp add: a)
-      using a
-      by (simp add: poly_map_real_polyadd)
-    qed
-qed
-
-(* Count the number of parameters of a polynomial. *)
-fun num_params :: "'a poly \<Rightarrow> nat"
-where "num_params (poly.C c) = 0"
-    | "num_params (poly.Bound n)  = Suc n"
-    | "num_params (poly.Add a b)  = max (num_params a) (num_params b)"
-    | "num_params (poly.Sub a b)  = max (num_params a) (num_params b)"
-    | "num_params (poly.Mul a b)  = max (num_params a) (num_params b)"
-    | "num_params (poly.Neg a)    = num_params a"
-    | "num_params (poly.Pw a n)   = num_params a"
-    | "num_params (poly.CN a n b) = max (max (num_params a) (num_params b)) (Suc n)"
-
-(* Count the number of parameters of a floatarith expression *)
-fun num_vars :: "floatarith \<Rightarrow> nat"
-where "num_vars (Add a b) = max (num_vars a) (num_vars b)"
-    | "num_vars (Minus a) = num_vars a"
-    | "num_vars (Mult a b) = max (num_vars a) (num_vars b)"
-    | "num_vars (Inverse a) = num_vars a"
-    | "num_vars (Cos a) = num_vars a"
-    | "num_vars (Arctan a) = num_vars a"
-    | "num_vars (Min a b) = max (num_vars a) (num_vars b)"
-    | "num_vars (Max a b) = max (num_vars a) (num_vars b)"
-    | "num_vars (Abs a) = num_vars a"
-    | "num_vars (Sqrt a) = num_vars a"
-    | "num_vars (Exp a) = num_vars a"
-    | "num_vars (Ln a) = num_vars a"
-    | "num_vars (Var v) = Suc v"
-    | "num_vars (Power a n) = num_vars a"
-    | "num_vars (Num _) = 0"
-    | "num_vars Pi = 0"
-    
-lemma [simp]: "num_params (poly_map real p) = num_params p"
-by (induction p, simp_all)
-
-(* Evaluating a float poly is equivalent to evaluating the corresponding
-   real poly with the float parameters converted to reals. *)
-lemma Ipoly_real_float_eqiv:
-fixes p::"float poly" and xs::"float list"
-assumes "num_params p \<le> length xs"
-shows "Ipoly xs (p::real poly) = Ipoly xs p"
-using assms by (induction p, simp_all)
-
-lemma Ipoly_real_float_interval_eqiv:
-fixes p::"float interval poly" and xs::"float interval list"
-assumes "num_params p \<le> length xs"
-shows "Ipoly (map (interval_map real) xs) (poly_map (interval_map real) p) = interval_map real (Ipoly xs p)"
-using assms by (induction p, simp_all)
-
-(* TODO: This lemma is a mess and similar to Ipoly_real_float_interval_eqiv. *)
-lemma Ipoly_real_float_interval_eqiv':
-fixes p::"float poly" and xs::"float interval list"
-assumes "num_params p \<le> length xs"
-shows "Ipoly (map (interval_map real) xs) (poly_map interval_of (poly_map real p)) = interval_map real (Ipoly xs (poly_map interval_of p))"
-using assms by (induction p, simp_all)
-
-lemma nonempty_Ipoly:
-fixes A :: "'a::linordered_idom interval list"
-fixes p :: "'a poly"
-assumes "all_nonempty I"
-assumes "num_params p \<le> length I"
-shows "nonempty (Ipoly I (poly_map interval_of p))"
-using assms
-by (induction p, simp_all add: nonempty_add nonempty_sub nonempty_neg nonempty_pow)
-
-(* Evaluating an "'a poly" with "'a interval" arguments is monotone. *)
-lemma Ipoly_interval_args_mono:
-fixes p::"'a::linordered_idom poly"
-and   x::"'a list"
-and   xs::"'a interval list"
-assumes "x all_in xs"
-assumes "num_params p \<le> length xs"
-shows "Ipoly x p \<in> set_of (Ipoly xs (poly_map interval_of p))"
-using assms
-apply(induction p)
-by (simp_all add: set_of_add_mono set_of_minus_mono set_of_mult_mono set_of_uminus_mono set_of_power_mono)
-
-lemma Ipoly_interval_args_inc_mono:
-fixes p::"'a::linordered_idom poly"
-and   I::"'a interval list" and J::"'a interval list"
-assumes "num_params p \<le> length I"
-assumes "I all_subset J"
-assumes "all_nonempty I"
-shows "set_of (Ipoly I (poly_map interval_of p)) \<subseteq> set_of (Ipoly J (poly_map interval_of p))"
-proof-
-  have "?thesis \<and> nonempty (Ipoly I (poly_map interval_of p))"
-  using assms(1)
-  apply(induction p)
-  using assms(2,3)
-  apply(simp_all)[2]
-  proof-
-    case (Add pl pr)
-    show ?case using Add by (simp add: set_of_add_inc nonempty_add)
-  next
-    case (Sub pl pr)
-    show ?case using Sub by (simp add: set_of_sub_inc nonempty_sub)
-  next
-    case (Mul pl pr)
-    show ?case using Mul by (simp add: set_of_mul_inc)
-  next
-    case (Neg p)
-    show ?case using Neg by (simp add: set_of_neg_inc nonempty_neg)
-  next
-    case (Pw p n)
-    show ?case using Pw by (simp add: set_of_pow_inc nonempty_pow)
-  next
-    case (CN pl n pr)
-    show ?case using CN assms(2,3) by (simp add: nonempty_add set_of_add_inc set_of_mul_inc)
-  qed
-  thus ?thesis by simp
-qed
+subsection \<open>Definition of taylor models and notion of validity\<close>
 
 (* Taylor models are a pair of a polynomial and an absolute error bound. *)
 datatype taylor_model = TaylorModel "float poly" "float interval"
@@ -369,12 +175,15 @@ and   "\<And>x. x all_in I \<Longrightarrow> f x - Ipoly x (p::real poly) \<in> 
 shows "valid_tm I f t"
 using assms by (auto simp: valid_tm_def)
 
+
+subsection \<open>Interval bounds for taylor models\<close>
+
 (* Bound a polynomial by simply evaluating it with interval arguments. *)
 fun compute_bound_tm :: "taylor_model \<Rightarrow> float interval list \<Rightarrow> float interval"
 where "compute_bound_tm (TaylorModel p i) Is = Ipoly Is p + i"
 
 lemma compute_bound_tm_correct:
-fixes S :: "real set list"
+fixes S :: "real set list" 
 fixes I :: "float interval list"
 fixes x :: "real list"
 fixes f :: "real list \<Rightarrow> real"
@@ -407,7 +216,8 @@ proof-
     by (induction p, simp_all)
 qed
 
-(* Taylor models for basic functions. *)
+
+subsection \<open>Computing taylor models for basic, uni-variate functions\<close>
 
 fun tm_const :: "float \<Rightarrow> taylor_model"
 where "tm_const c = TaylorModel (poly.C c) (Ivl 0 0)"
@@ -424,7 +234,11 @@ assumes "n < length I"
 shows "valid_tm I (interpret_floatarith (Var n)) (tm_id n)"
 using assms by simp
 
+
+subsubsection \<open>Automatic derivation of floatarith expressions\<close>
+
 (* Compute the nth derivative of a floatarith expression *)
+(* TODO: This seems to be really slow in some cases. *)
 fun deriv :: "nat \<Rightarrow> floatarith \<Rightarrow> nat \<Rightarrow> floatarith"
 where "deriv v f 0 = f"
     | "deriv v f (Suc n) = DERIV_floatarith 0 (deriv v f n)"
@@ -453,8 +267,8 @@ apply(induction n)
 using isDERIV_DERIV_floatarith assms
 by auto
 
-(* Compute a taylor model from an arbitrary, univariate floatarith expression, if possible.
-   This is used to compute taylor models for elemental functions like sin, cos, exp, etc. *)
+
+subsubsection \<open>Automatic computation of taylor coefficients for uni-variate functions\<close>
 
 (* The interval coefficients of the taylor polynomial,
    i.e. the real coefficients approximated by a float interval. *)
@@ -470,14 +284,7 @@ where "tmf_cs' 0 I a f = []"
 fun tmf_cs :: "nat \<Rightarrow> float interval \<Rightarrow> float \<Rightarrow> floatarith \<Rightarrow> float interval list option"
 where "tmf_cs n I a f = those (rev (tmf_c n I f # (tmf_cs' n I a f)))"
 
-value "the (tmf_cs 5 (Ivl 0 2) 1 (Cos (Var 0)))" 
-
-(* TODO: Is this necessary? *)
-lemma of_nat_real_float_equiv: "(of_nat n :: real) = (of_nat n :: float)"
-  by (induction n, simp_all add: of_nat_def)
-
-lemma fact_real_float_equiv: "(fact n :: float) = (fact n :: real)"
-  by (induction n, simp_all add: of_nat_real_float_equiv)
+value "the (tmf_cs 5 (Ivl 0 2) 1 (Cos (Var 0)))"
 
 lemma tmf_c_correct:
 fixes A::"float interval" and I::"float interval" and f::floatarith and a::real
@@ -495,64 +302,6 @@ proof-
     by auto
   thus "nonempty I"
     by (simp add: I_decomp)
-qed
-
-lemma Some_those_length:
-assumes "Some xs = those ys"
-shows "length xs = length ys"
-using assms
-apply(induction ys arbitrary: xs)
-apply(simp)
-proof(goals)
-  case (1 a ys xs)
-  show ?case
-    apply(cases a)
-    using 1(2)
-    apply(simp)
-    proof-
-      fix a' assume a_def: "a = Some a'"
-      from 1(2)
-      have "Some xs = map_option (op # a') (those ys)"
-        by (simp add: a_def)
-      thus "length xs = length (a # ys)"
-        using 1(1) by (metis (no_types, lifting) length_Cons map_option_eq_Some)
-    qed
-qed
-
-lemma Some_those_nth:
-assumes "Some xs = those ys"
-assumes "i < length xs"
-shows "Some (xs!i) = ys!i"
-proof-
-  have "None \<in> set ys \<Longrightarrow> those ys = None"
-    apply(induction ys)
-    apply(simp)
-    proof(goals)
-      case (1 a ys) thus ?case by (cases a, simp_all)
-    qed
-  hence "None \<notin> set ys"
-    using assms(1) by auto
-  then obtain y where y_def: "Some y = ys!i"
-    by (metis Some_those_length assms not_None_eq nth_mem)
-  hence "xs!i = y"
-    using assms
-    apply(induction i arbitrary: y xs ys)
-    apply(simp_all)
-    proof(goals)
-      case (1 y xs ys)
-      thus ?case
-      apply(cases ys)
-      apply(simp_all)
-      by (metis nth_Cons_0 option.distinct(1) option.map_disc_iff option.map_sel option.sel option.simps(5))
-    next
-      case (2 i y xs ys)
-      thus ?case
-      apply(cases ys)
-      apply(simp_all)
-      by (smt Suc_less_eq length_Cons map_option_eq_Some nth_Cons_Suc option.case_eq_if option.distinct(1))
-    qed
-  thus ?thesis
-    by (simp add: y_def)
 qed
 
 lemma tmf_cs_length:
@@ -610,12 +359,16 @@ using tmf_c_correct(1)[OF _ tmf_cs_correct(1)[OF assms], where a=a, simplified]
       tmf_c_correct(1)[OF _ tmf_cs_correct(2)[OF assms], where a=a, simplified, OF assms(1)]
 by (auto simp: nat_less_le)
 
-abbreviation "x_minus_a\<equiv>\<lambda>a. poly.Sub (poly.Bound 0) (poly.C a)"
 
+subsubsection \<open>Computing taylor models for arbitrary uni-variate expressions\<close> 
+
+abbreviation "x_minus_a\<equiv>\<lambda>a. poly.Sub (poly.Bound 0) (poly.C a)"
 fun tm_floatarith' :: "float \<Rightarrow> float interval list \<Rightarrow> float poly \<times> float interval poly"
 where "tm_floatarith' a [] = (poly.C 0, poly.C 0)"
     | "tm_floatarith' a (c # cs) = (\<lambda>(pf, pi). (poly.Add (poly.C (mid c)) (poly.Mul (x_minus_a a) pf), poly.Add (poly.C (centered c)) (poly.Mul (x_minus_a (interval_of a)) pi))) (tm_floatarith' a cs)"
-    
+
+(* Compute a taylor model from an arbitrary, univariate floatarith expression, if possible.
+   This is used to compute taylor models for elemental functions like sin, cos, exp, etc. *)
 fun tm_floatarith :: "nat \<Rightarrow> float interval \<Rightarrow> float \<Rightarrow> floatarith \<Rightarrow> taylor_model option"
 where "tm_floatarith n I a f = map_option (\<lambda>(pf, pi). TaylorModel pf (Ipoly [I] pi)) (map_option (tm_floatarith' a) (tmf_cs n I a f))"
 
@@ -883,7 +636,7 @@ qed
 definition Sin::"floatarith \<Rightarrow> floatarith"
 where "Sin a = Minus (Cos (Add (Mult Pi (Num (Float 1 (- 1)))) (Minus a)))"
 
-(* Operations on taylor models. *)
+subsection \<open>Operations on taylor models\<close> 
 fun tm_neg :: "taylor_model \<Rightarrow> taylor_model"
 where "tm_neg (TaylorModel p i) = TaylorModel (poly.Neg p) (-i)"
 
@@ -1162,6 +915,9 @@ proof-
     qed
 qed
 
+
+subsection \<open>Computing taylor models for multivariate expressions\<close>
+
 (* Compute taylor models of degree n from floatarith expressions. *)
 fun compute_tm :: "nat \<Rightarrow> float interval list \<Rightarrow> float list \<Rightarrow> floatarith \<Rightarrow> taylor_model option"
 where "compute_tm _ I _ (Num c) = Some (tm_const c)"
@@ -1270,6 +1026,9 @@ value "the (compute_tm 7 [Ivl 0 2, Ivl 0 2] [1,1] (Add (Var 0) (Var 1)))"
 (* TODO: This is far too slow! *)
 value "the (compute_tm 5 [Ivl (-1) 1] [0] (Cos (Var 0)))"
 
+
+subsection \<open>Computing bounds for floatarith expressions\<close>
+
 (* Automatically find interval bounds for floatarith expressions. *)
 fun compute_ivl_bound :: "nat \<Rightarrow> float interval list \<Rightarrow> floatarith \<Rightarrow> float interval option"
 where "compute_ivl_bound n I f = (case compute_tm n I (map mid I) f of None \<Rightarrow> None | Some t \<Rightarrow> Some (compute_bound_tm t I))"
@@ -1288,27 +1047,10 @@ proof-
                            and t_def: "Some t = compute_tm n I (map mid I) f"
     by (simp, metis (mono_tags, lifting) option.case_eq_if option.collapse option.distinct(1) option.inject)
   
-  have a_all_in_I: "(map mid I) all_in I"
-    using `all_nonempty I`
-    by (auto simp: mid_in_interval)
-  
-  from compute_bound_tm_correct[OF compute_tm_valid[OF `0 < n` assms(2) `all_nonempty I` a_all_in_I t_def] `x all_in I`]
+  from compute_bound_tm_correct[OF compute_tm_valid[OF `0 < n` assms(2) `all_nonempty I` _ t_def] `x all_in I`]
   show ?thesis
-    by (simp add: B_def)
+    using `all_nonempty I`
+    by (auto simp: B_def mid_in_interval)
 qed
-
-(* Compute bounds on some expressions. *)
-value "the (compute_ivl_bound 1 [Ivl (-2) 1, Ivl 9 11] (Add (Var 0) (Var 1)))"
-
-lemma
-shows "8 \<in> set_of (the (compute_ivl_bound 10 [Ivl (-2) 1, Ivl 9 11] (Add (Var 0) (Var 1))))" 
-(is "?v \<in> set_of ?B")
-proof-
-  have "?B = Ivl 7 12"
-  apply(simp add: plus_interval_def eq_onp_same_args minus_float.abs_eq)
-  by (metis add_One_commute float_of_numeral one_plus_numeral one_plus_numeral semiring_norm(3) semiring_norm(4))
-  thus ?thesis by simp
-qed
-
 
 end
