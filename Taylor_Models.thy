@@ -23,7 +23,7 @@ value "Ipoly [Ivl (Float 4 (-6)) (Float 10 (-6))] (poly.Add (poly.C (Ivl (Float 
 subsection \<open>Computing interval bounds on arithmetic expressions\<close>
 
 (* TODO: For now, I hard-code the precision, because I don't want to pass it around. *)
-definition prec::nat where "prec=24"
+definition prec::nat where "prec=64"
 fun compute_bound :: "floatarith \<Rightarrow> float interval list \<Rightarrow> float interval option"
 where "compute_bound p I = (case approx prec p (map (Some o proc_of) I) of Some (a, b) \<Rightarrow> (if a \<le> b then Some (Ivl a b) else None) | _ \<Rightarrow> None)"
 
@@ -237,11 +237,16 @@ using assms by simp
 
 subsubsection \<open>Automatic derivation of floatarith expressions\<close>
 
+definition Sin::"floatarith \<Rightarrow> floatarith"
+where "Sin a = Minus (Cos (Add (Mult Pi (Num (Float 1 (- 1)))) (Minus a)))"
+
 (* Compute the nth derivative of a floatarith expression *)
-(* TODO: This seems to be really slow in some cases. *)
+(* TODO: This creates rather large result expressions, which cause considerable slowdown. *)
 fun deriv :: "nat \<Rightarrow> floatarith \<Rightarrow> nat \<Rightarrow> floatarith"
 where "deriv v f 0 = f"
-    | "deriv v f (Suc n) = DERIV_floatarith 0 (deriv v f n)"
+    | "deriv v f (Suc n) = DERIV_floatarith v (deriv v f n)"
+    
+value "map_option (interval_map real) (compute_bound (Cos (Var 0)) [Ivl (-1) 1])"
 
 lemma isDERIV_DERIV_floatarith:
 assumes "isDERIV n f vs"
@@ -632,10 +637,6 @@ proof-
   qed
 qed
 
-(* TODO: Derive taylor models for sin by translating the cosine. *)
-definition Sin::"floatarith \<Rightarrow> floatarith"
-where "Sin a = Minus (Cos (Add (Mult Pi (Num (Float 1 (- 1)))) (Minus a)))"
-
 subsection \<open>Operations on taylor models\<close> 
 fun tm_neg :: "taylor_model \<Rightarrow> taylor_model"
 where "tm_neg (TaylorModel p i) = TaylorModel (poly.Neg p) (-i)"
@@ -927,6 +928,20 @@ where "compute_tm _ I _ (Num c) = Some (tm_const c)"
          of (Some t1, Some t2) \<Rightarrow> Some (tm_add t1 t2)
           | _ \<Rightarrow> None)"
     | "compute_tm n I a (Minus f) = map_option (\<lambda>t. tm_neg t) (compute_tm n I a f)"
+    | "compute_tm n I a (Mult l r) = (
+         case (compute_tm n I a l, compute_tm n I a r) 
+         of (Some t1, Some t2) \<Rightarrow> Some (tm_mul t1 t2 I)
+          | _ \<Rightarrow> None)"     
+    | "compute_tm n I a (Power f k) = map_option (\<lambda>t. tm_pow t k I) (compute_tm n I a f)"
+    | "compute_tm n I a (Inverse f) = (
+         case compute_tm n I a f
+         of Some t2 \<Rightarrow> (
+           let I' = compute_bound_tm t2 I; a' = compute_bound_tm t2 a
+           in if real (lower I') \<le> 0 \<and> 0 \<le> real (upper I') then None else
+              case tm_floatarith n I' (mid a') (Inverse (Var 0))
+              of Some t1 \<Rightarrow> Some (tm_comp t1 t2 I)
+              | _ \<Rightarrow> None)
+         | _ \<Rightarrow> None)"
     | "compute_tm n I a (Cos f) = (
          case compute_tm n I a f
          of Some t2 \<Rightarrow> (
@@ -935,8 +950,6 @@ where "compute_tm _ I _ (Num c) = Some (tm_const c)"
            | _ \<Rightarrow> None)
          | _ \<Rightarrow> None)"
     | "compute_tm _ _ _ _ = None"
-    
-term "(\<lambda>t2. map_option (\<lambda>t1. tm_comp t1 t2 I) (tm_floatarith n (compute_bound_tm t2 I) (mid (compute_bound_tm t2 a)) (Cos (Var 0))))"
 
 lemma compute_tm_valid:
 assumes "0 < n"
@@ -975,6 +988,92 @@ next
   show "valid_tm I (interpret_floatarith (Minus f)) t"
     apply(simp add: t_def, rule tm_neg_valid[OF Minus(1)[OF _ t1_def]])
     using Minus(2) by auto
+next
+  case (Mult l r t)
+  obtain t1 where t1_def: "Some t1 = compute_tm n I a l"
+    by (metis (no_types, lifting) Mult(4) compute_tm.simps(5) option.case_eq_if option.collapse prod.case)
+  obtain t2 where t2_def: "Some t2 = compute_tm n I a r"
+    by (smt Mult(4) compute_tm.simps(5) option.case_eq_if option.collapse prod.case)
+  have t_def: "t = tm_mul t1 t2 I"
+    using Mult(4) t1_def t2_def
+    by (metis compute_tm.simps(5) option.case(2) option.inject prod.case)
+  
+  have [simp]: "interpret_floatarith (floatarith.Mult l r) = interpret_floatarith l * interpret_floatarith r"
+    by auto
+  show "valid_tm I (interpret_floatarith (floatarith.Mult l r)) t"
+    apply(simp add: t_def)
+    apply(rule tm_mul_valid[OF Mult(1)[OF _ t1_def] Mult(2)[OF _ t2_def]])
+    using Mult(3) `all_nonempty I` by auto
+next
+  case (Power f k t)
+  from Power(3)
+  obtain tm_f where tm_f_def: "Some tm_f =  compute_tm n I a f"
+    apply(simp) using map_option_eq_Some by metis
+  have t_decomp: "t = tm_pow tm_f k I"
+    using Power(3) by (simp add: tm_f_def[symmetric])
+  show ?case
+    using tm_pow_valid[OF Power(1)[OF Power(2)[simplified] tm_f_def] `all_nonempty I`]
+    by (simp add: t_decomp fun_pow)
+next
+  case (Inverse f t)
+  obtain tm_f where tm_f_def: "Some tm_f = compute_tm n I a f"
+    using Inverse(3)[unfolded compute_tm.simps]
+    by (metis (no_types, lifting) option.case_eq_if option.collapse)
+  def I'\<equiv>"compute_bound_tm tm_f I"
+  def a'\<equiv>"compute_bound_tm tm_f a"
+  have zero_notin_I': "\<not>(real (lower I') \<le> 0 \<and> 0 \<le> real (upper I'))"
+    using Inverse(3)
+    by (auto simp: I'_def tm_f_def[symmetric])
+  obtain tm_inv where tm_inv_def: "Some tm_inv = tm_floatarith n (I') (mid a') (Inverse (Var 0))"
+    using Inverse(3)
+    apply(simp add: I'_def a'_def tm_f_def[symmetric] Let_def del: tm_floatarith.simps)
+    using zero_notin_I'[unfolded I'_def]
+    by (metis (mono_tags, lifting) interval_of_def map_eq_conv option.case_eq_if option.collapse)
+    
+  have t_decomp: "t = tm_comp tm_inv tm_f I"
+    using Inverse(3)
+    apply(simp add: I'_def[symmetric] a'_def[symmetric] tm_f_def[symmetric] del: tm_floatarith.simps)
+    by (metis option.distinct(1) option.inject option.simps(5) tm_inv_def)
+  have valid_tm_tm_f: "valid_tm I (interpret_floatarith f) tm_f"
+    using Inverse(1)[OF Inverse(2)[simplified] tm_f_def] .
+    
+  obtain tm_f_p tm_f_e where tm_f_decomp: "tm_f = TaylorModel tm_f_p tm_f_e"
+    using taylor_model.exhaust by metis
+  
+  have "mid (compute_bound_tm tm_f (map interval_of a)) \<in> set_of (compute_bound_tm tm_f (map interval_of a))"
+    apply(rule mid_in_interval)
+    using valid_tm_tm_f `a all_in I`
+    apply(simp add: tm_f_decomp)
+    apply(rule nonempty_add[OF nonempty_Ipoly])
+    by (simp_all add: nonempty_add[OF nonempty_Ipoly])
+  also have "... \<subseteq> set_of (compute_bound_tm tm_f I)"
+    using `a all_in I` valid_tm_tm_f
+    apply(simp add: tm_f_decomp)
+    apply(rule set_of_add_inc_left[OF nonempty_Ipoly])
+    apply(simp_all add: tm_f_decomp)
+    apply(rule Ipoly_interval_args_inc_mono)
+    by simp_all
+  finally have a1: "mid (compute_bound_tm tm_f (map interval_of a)) \<in> set_of (compute_bound_tm tm_f I)"
+    .
+    
+  have [simp]: "interpret_floatarith (Inverse (Var 0)) = (\<lambda>x. inverse (x ! 0))"
+    by auto
+    
+  have I'_decomp: "I' = Ivl (lower I') (upper I')"
+    by (simp add: add_left_imp_eq plus_interval_def)
+  have "0 \<notin> set_of (interval_map real (compute_bound_tm tm_f I))"
+    apply(subst I'_decomp[unfolded I'_def])
+    using zero_notin_I' by (simp add: I'_def)
+  hence a2: "valid_tm [compute_bound_tm tm_f I] (\<lambda>x. inverse (x ! 0)) tm_inv"
+    using tm_floatarith_valid[OF `0 < n` a1 _ tm_inv_def[unfolded I'_def a'_def]] 
+    by auto
+    
+  show ?case
+    unfolding t_decomp
+    using tm_comp_valid[OF `all_nonempty I` _ a2 Inverse(1)[OF _ tm_f_def]]
+          compute_bound_tm_correct[OF Inverse(1)[OF _ tm_f_def]]
+          tm_floatarith_valid[OF `0 < n` a1 _ tm_inv_def[unfolded I'_def a'_def]] Inverse.prems(1)
+    by auto
 next
   case (Cos f t)
   obtain tm_f where tm_f_def: "Some tm_f = compute_tm n I a f"
@@ -1019,6 +1118,7 @@ next
     by auto
 qed (simp_all add: valid_tm_def)
 
+
 (* Compute some taylor models. *)
 value "the (compute_tm 7 [Ivl 0 2] [1] (Num 2))"
 value "the (compute_tm 7 [Ivl 0 2] [1] (Var 0))"
@@ -1032,6 +1132,8 @@ subsection \<open>Computing bounds for floatarith expressions\<close>
 (* Automatically find interval bounds for floatarith expressions. *)
 fun compute_ivl_bound :: "nat \<Rightarrow> float interval list \<Rightarrow> floatarith \<Rightarrow> float interval option"
 where "compute_ivl_bound n I f = (case compute_tm n I (map mid I) f of None \<Rightarrow> None | Some t \<Rightarrow> Some (compute_bound_tm t I))"
+
+value "map_option (map_interval real) (compute_ivl_bound 7 [Ivl (0) 2] (Power (Cos (Var 0)) 2))"
 
 (* Automatically computed bounds are correct. *)
 lemma compute_ivl_bound_correct:
