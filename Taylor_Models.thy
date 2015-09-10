@@ -46,7 +46,7 @@ lemma compute_bound_correct:
 fixes i::"real list"
 assumes "i all_in I"
 assumes "Some ivl = compute_bound f I"
-shows "interpret_floatarith f i \<in> set_of (interval_map real ivl)"
+shows "interpret_floatarith f i \<in> set_of ivl"
 proof-
   have "\<forall>n < length I. \<exists>a b. I!n = Ivl a b"
     proof(safe)
@@ -130,7 +130,7 @@ datatype taylor_model = TaylorModel "float poly" "float interval"
      - and it is close to f on I.
 *)
 primrec valid_tm :: "float interval list \<Rightarrow> (real list \<Rightarrow> real) \<Rightarrow> taylor_model \<Rightarrow> bool"
-where "valid_tm I f (TaylorModel p i) = (nonempty i \<and> num_params p \<le> length I \<and> (\<forall>x. x all_in I \<longrightarrow> f x - Ipoly x (p::real poly) \<in> set_of i))"
+where "valid_tm I f (TaylorModel p e) = (nonempty e \<and> num_params p \<le> length I \<and> (\<forall>x. x all_in I \<longrightarrow> f x - Ipoly x (p::real poly) \<in> set_of e))"
 
 lemma valid_tmD[elim]:
 assumes "valid_tm I f t"
@@ -140,23 +140,23 @@ and   "nonempty (Ivl l u)"
 and   "num_params p \<le> length I"
 and   "\<And>x. x all_in I \<Longrightarrow> f x - Ipoly x (p::real poly) \<in> {l..u}"
 proof-
-  from assms obtain p i where t_def: "t = TaylorModel p i"
+  from assms obtain p e where t_def: "t = TaylorModel p e"
     using taylor_model.exhaust by auto
-  obtain l u where i_def: "i = Ivl l u"
+  obtain l u where e_def: "e = Ivl l u"
     using interval.exhaust by auto
       
   show ?thesis
-    apply(rule, simp add: t_def(1) i_def)
-    using assms by (auto simp: t_def i_def)
+    apply(rule, simp add: t_def(1) e_def)
+    using assms by (auto simp: t_def e_def)
 qed
 
 lemma valid_tmD':
 assumes "valid_tm I f t"
-obtains p i
-where "t = TaylorModel p i"
-and   "nonempty i"
+obtains p e
+where "t = TaylorModel p e"
+and   "nonempty e"
 and   "num_params p \<le> length I"
-and   "\<And>x. x all_in I \<Longrightarrow> f x - Ipoly x (p::real poly) \<in> set_of i"
+and   "\<And>x. x all_in I \<Longrightarrow> f x - Ipoly x (p::real poly) \<in> set_of e"
 using assms by auto
 
 lemma valid_tmI[intro]:
@@ -168,19 +168,20 @@ shows "valid_tm I f t"
 using assms by (auto simp: valid_tm_def)
 
 lemma valid_tmI':
-assumes "t = TaylorModel p i"
-and   "nonempty i"
+assumes "t = TaylorModel p e"
+and   "nonempty e"
 and   "num_params p \<le> length I"
-and   "\<And>x. x all_in I \<Longrightarrow> f x - Ipoly x (p::real poly) \<in> set_of i"
+and   "\<And>x. x all_in I \<Longrightarrow> f x - Ipoly x (p::real poly) \<in> set_of e"
 shows "valid_tm I f t"
 using assms by (auto simp: valid_tm_def)
 
 
 subsection \<open>Interval bounds for taylor models\<close>
 
-(* Bound a polynomial by simply evaluating it with interval arguments. *)
+(* Bound a polynomial by simply evaluating it with interval arguments.
+   TODO: This naive approach introduces significant over-approximation. *)
 fun compute_bound_tm :: "taylor_model \<Rightarrow> float interval list \<Rightarrow> float interval"
-where "compute_bound_tm (TaylorModel p i) Is = Ipoly Is p + i"
+where "compute_bound_tm (TaylorModel p e) Is = Ipoly Is p + e"
 
 lemma compute_bound_tm_correct:
 fixes S :: "real set list" 
@@ -327,7 +328,7 @@ where "tmf_cs' 0 I a f = []"
 fun tmf_cs :: "nat \<Rightarrow> float interval \<Rightarrow> float \<Rightarrow> floatarith \<Rightarrow> float interval list option"
 where "tmf_cs n I a f = those (rev (tmf_c n I f # (tmf_cs' n I a f)))"
 
-value "the (tmf_cs 5 (Ivl 0 2) 1 (Cos (Var 0)))"
+value "map (interval_map real) (the (tmf_cs 10 (Ivl 0 2) 1 (Cos (Var 0))))"
 
 lemma tmf_c_correct:
 fixes A::"float interval" and I::"float interval" and f::floatarith and a::real
@@ -393,7 +394,7 @@ next
   finally show "Some (cs ! i) = tmf_c i (interval_of a) f" .
 qed
 
-lemma tmf_cs_valid:
+lemma tmf_cs_nonempty:
 fixes A::"float interval" and f::floatarith
 assumes "a \<in> set_of A"
 assumes "Some cs = tmf_cs n A a f"
@@ -415,9 +416,6 @@ where "tm_floatarith' a [] = (poly.C 0, poly.C 0)"
 fun tm_floatarith :: "nat \<Rightarrow> float interval \<Rightarrow> float \<Rightarrow> floatarith \<Rightarrow> taylor_model option"
 where "tm_floatarith n I a f = map_option (\<lambda>(pf, pi). TaylorModel pf (Ipoly [I] pi)) (map_option (tm_floatarith' a) (tmf_cs n I a f))"
 
-value "tm_floatarith 5 (Ivl (-1) 1) 0 (Cos (Var 0))"
-value "interval_map real (compute_bound_tm (the (tm_floatarith 5 (Ivl (-1) 1) 0 (Cos (Var 0)))) [Ivl (-1) 1])"
-
 lemma tm_floatarith_valid:
 assumes "0 < n"
 assumes "a \<in> set_of I"
@@ -435,7 +433,7 @@ proof-
     by (metis map_option_eq_Some)
   have pfpi_def: "(pf, pi) = tm_floatarith' a cs"
     by (metis Some_pf_pi_def cs_def map_option_eq_Some option.sel)
-  from tmf_cs_valid[OF assms(2) cs_def] tmf_cs_length[OF cs_def]
+  from tmf_cs_nonempty[OF assms(2) cs_def] tmf_cs_length[OF cs_def]
   have valid_cs: "\<And>i. i < length cs \<Longrightarrow> nonempty (cs ! i)"
     by auto
   
