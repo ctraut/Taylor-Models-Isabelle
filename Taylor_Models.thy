@@ -217,7 +217,7 @@ proof-
 qed
 
 
-subsection \<open>Computing taylor models for basic, uni-variate functions\<close>
+subsection \<open>Computing taylor models for basic, univariate functions\<close>
 
 fun tm_const :: "float \<Rightarrow> taylor_model"
 where "tm_const c = TaylorModel (poly.C c) (Ivl 0 0)"
@@ -238,10 +238,9 @@ using assms by simp
 subsubsection \<open>Automatic derivation of floatarith expressions\<close>
 
 definition Sin::"floatarith \<Rightarrow> floatarith"
-where "Sin a = Minus (Cos (Add (Mult Pi (Num (Float 1 (- 1)))) (Minus a)))"
+where "Sin a = Cos (Add a (Mult Pi (Num (Float (-1) (- 1)))))"
 
 (* Compute the nth derivative of a floatarith expression *)
-(* TODO: This creates rather large result expressions, which cause considerable slowdown. *)
 fun deriv :: "nat \<Rightarrow> floatarith \<Rightarrow> nat \<Rightarrow> floatarith"
 where "deriv v f 0 = f"
     | "deriv v f (Suc n) = DERIV_floatarith v (deriv v f n)"
@@ -249,14 +248,14 @@ where "deriv v f 0 = f"
 value "map_option (interval_map real) (compute_bound (Cos (Var 0)) [Ivl (-1) 1])"
 
 lemma isDERIV_DERIV_floatarith:
-assumes "isDERIV n f vs"
-shows "isDERIV n (DERIV_floatarith n f) vs"
+assumes "isDERIV v f vs"
+shows "isDERIV v (DERIV_floatarith v f) vs"
 using assms
 apply(induction f)
 apply(simp_all add: numeral_eq_Suc add_nonneg_eq_0_iff)
 proof-
-  fix f m assume hyp: "isDERIV n f vs \<Longrightarrow> isDERIV n (DERIV_floatarith n f) vs"
-  show "isDERIV n (Power f m) vs \<Longrightarrow> isDERIV n (DERIV_floatarith n (Power f m)) vs"
+  fix f m assume hyp: "isDERIV v f vs \<Longrightarrow> isDERIV v (DERIV_floatarith v f) vs"
+  show "isDERIV v (Power f m) vs \<Longrightarrow> isDERIV v (DERIV_floatarith v (Power f m)) vs"
     apply(cases m)
     apply(simp_all)
     using hyp
@@ -272,13 +271,52 @@ apply(induction n)
 using isDERIV_DERIV_floatarith assms
 by auto
 
+(* Faster derivation for univariate functions, producing smaller terms. *)
+(* TODO: Extend to Inverse and Arctan! *)
+fun deriv_0 :: "floatarith \<Rightarrow> nat \<Rightarrow> floatarith"
+where "deriv_0 (Cos (Var 0)) n = (case n mod 4
+         of 0 \<Rightarrow> Cos (Var 0)
+         | Suc 0 \<Rightarrow> Minus (Sin (Var 0))
+         | Suc (Suc 0) \<Rightarrow> Minus (Cos (Var 0))
+         | Suc (Suc (Suc 0)) \<Rightarrow> Sin (Var 0))"
+    | "deriv_0 f n = deriv 0 f n"
 
-subsubsection \<open>Automatic computation of taylor coefficients for uni-variate functions\<close>
+lemma deriv_0_correct:
+assumes "isDERIV 0 f [t]"
+shows "((\<lambda>x. interpret_floatarith (deriv_0 f n) [x]) has_real_derivative interpret_floatarith (deriv_0 f (Suc n)) [t]) (at t)"
+apply(cases "(f, n)" rule: deriv_0.cases)
+apply(safe)
+defer
+using deriv_correct[OF assms]
+apply(simp_all)[31]
+proof-
+  assume "f = Cos (Var 0)"
+  
+  have n_mod_4_cases: "n mod 4 = 0 | n mod 4 = 1 | n mod 4 = 2 | n mod 4 = 3"
+    by auto
+  have Sin_sin: "(\<lambda>xs. interpret_floatarith (Sin (Var 0)) xs) = (\<lambda>xs. sin (xs!0))"
+    apply(simp add: Sin_def sin_cos_eq)
+    apply(subst (2) cos_minus[symmetric])
+    by simp
+  show "((\<lambda>x. interpret_floatarith (deriv_0 (Cos (Var 0)) n) [x]) has_real_derivative
+           interpret_floatarith (deriv_0 (Cos (Var 0)) (Suc n)) [t])
+           (at t)"
+    using n_mod_4_cases
+    apply(safe)
+    apply(simp_all add: mod_Suc_eq_Suc_mod[of n 4] Sin_sin field_differentiable_minus)
+    using DERIV_cos field_differentiable_minus by fastforce
+qed
+
+lemma deriv_0_0[simp]:
+shows "deriv_0 f 0 = f"
+by (cases "(f, 0::nat)" rule: deriv_0.cases, simp_all)
+
+subsubsection \<open>Automatic computation of taylor coefficients for univariate functions\<close>
 
 (* The interval coefficients of the taylor polynomial,
    i.e. the real coefficients approximated by a float interval. *)
 fun tmf_c :: "nat \<Rightarrow> float interval \<Rightarrow> floatarith \<Rightarrow> float interval option"
-where "tmf_c n i f = compute_bound (Mult (deriv 0 f n) (Inverse (Num (fact n)))) [i]"
+where "tmf_c n i f = compute_bound (Mult (deriv_0 f n) (Inverse (Num (fact n)))) [i]"
 
 (* Make a list of the n coefficients. *) 
 fun tmf_cs' :: "nat \<Rightarrow> float interval \<Rightarrow> float \<Rightarrow> floatarith \<Rightarrow> float interval option list"
@@ -296,11 +334,11 @@ fixes A::"float interval" and I::"float interval" and f::floatarith and a::real
 assumes "a \<in> set_of A"
 assumes "Some I = tmf_c i A f"
 shows "nonempty I"
-and   "interpret_floatarith (deriv 0 f i) [a] / fact i \<in> set_of I"
+and   "interpret_floatarith (deriv_0 f i) [a] / fact i \<in> set_of I"
 proof-
   obtain l u where I_decomp: "I = Ivl l u" using interval.exhaust by auto
 
-  show result: "interpret_floatarith (deriv 0 f i) [a] / fact i \<in> set_of (interval_map real I)"
+  show result: "interpret_floatarith (deriv_0 f i) [a] / fact i \<in> set_of (interval_map real I)"
     using compute_bound_correct[OF _  assms(2)[unfolded tmf_c.simps], where i="[a]"] assms(1)
     by (simp add: divide_real_def fact_real_float_equiv)
   hence "set_of (interval_map real I) \<noteq> {}"
@@ -365,7 +403,7 @@ using tmf_c_correct(1)[OF _ tmf_cs_correct(1)[OF assms], where a=a, simplified]
 by (auto simp: nat_less_le)
 
 
-subsubsection \<open>Computing taylor models for arbitrary uni-variate expressions\<close> 
+subsubsection \<open>Computing taylor models for arbitrary univariate expressions\<close> 
 
 abbreviation "x_minus_a\<equiv>\<lambda>a. poly.Sub (poly.Bound 0) (poly.C a)"
 fun tm_floatarith' :: "float \<Rightarrow> float interval list \<Rightarrow> float poly \<times> float interval poly"
@@ -494,13 +532,13 @@ proof-
       
       have "\<exists>t. (if x < real a then x < t \<and> t < real a else real a < t \<and> t < x) \<and>
                 interpret_floatarith f [x] =
-                  (\<Sum>m<n. interpret_floatarith (deriv 0 f m) [real a] / fact m * (x - real a) ^ m)
-                  + interpret_floatarith (deriv 0 f n) [t] / fact n * (x - real a) ^ n"
+                  (\<Sum>m<n. interpret_floatarith (deriv_0 f m) [real a] / fact m * (x - real a) ^ m)
+                  + interpret_floatarith (deriv_0 f n) [t] / fact n * (x - real a) ^ n"
         apply(rule taylor[where a=l and b=u])
         apply(rule `0 < n`)
         apply(simp)
         apply(safe)[1]
-        apply(rule deriv_correct[OF assms(3)])
+        apply(rule deriv_0_correct[OF assms(3)])
         apply(simp add: I_def)
         using assms(2) x_def `x \<noteq> a`
         by (simp_all add: I_def)
@@ -508,8 +546,8 @@ proof-
       where "if x < real a then x < t \<and> t < real a else real a < t \<and> t < x"
       and taylor_expansion:
         "interpret_floatarith f [x] = 
-           (\<Sum>m<n. interpret_floatarith (deriv 0 f m) [real a] / fact m * (x - real a) ^ m)
-           + interpret_floatarith (deriv 0 f n) [t] / fact n * (x - real a) ^ n"
+           (\<Sum>m<n. interpret_floatarith (deriv_0 f m) [real a] / fact m * (x - real a) ^ m)
+           + interpret_floatarith (deriv_0 f n) [t] / fact n * (x - real a) ^ n"
         by auto
       from this(1) have t_in_I: "t \<in> set_of I"
         using assms(2) x_def
@@ -559,12 +597,12 @@ proof-
             qed
         qed
       
-      def cr\<equiv>"\<lambda>i. if i < n then (interpret_floatarith (deriv 0 f i) [real a] / fact i - real (mid (cs ! i)))
-                           else (interpret_floatarith (deriv 0 f i) [t] / fact n - real (mid (cs ! i)))"
+      def cr\<equiv>"\<lambda>i. if i < n then (interpret_floatarith (deriv_0 f i) [real a] / fact i - real (mid (cs ! i)))
+                           else (interpret_floatarith (deriv_0 f i) [t] / fact n - real (mid (cs ! i)))"
       def ci\<equiv>"\<lambda>i. (interval_map real (cs ! i) - interval_of (real (mid (cs ! i))))"
       
-      have "(\<Sum>m<n. interpret_floatarith (deriv 0 f m) [real a] / fact m * (x - real a) ^ m)
-                 + interpret_floatarith (deriv 0 f n) [t] / fact n * (x - real a) ^ n
+      have "(\<Sum>m<n. interpret_floatarith (deriv_0 f m) [real a] / fact m * (x - real a) ^ m)
+                 + interpret_floatarith (deriv_0 f n) [t] / fact n * (x - real a) ^ n
                  - Ipoly xs (poly_map real pf)
                  = (\<Sum>m<n. cr m  * (x - real a) ^ m) + cr n * (x - real a) ^ n"
         by (simp add: Ipoly_pf_eq algebra_simps setsum.distrib[symmetric] cr_def)
@@ -1123,8 +1161,9 @@ qed (simp_all add: valid_tm_def)
 value "the (compute_tm 7 [Ivl 0 2] [1] (Num 2))"
 value "the (compute_tm 7 [Ivl 0 2] [1] (Var 0))"
 value "the (compute_tm 7 [Ivl 0 2, Ivl 0 2] [1,1] (Add (Var 0) (Var 1)))"
+value "the (compute_tm 10 [Ivl (-1) 1] [0] (Cos (Var 0)))"
 (* TODO: This is far too slow! *)
-value "the (compute_tm 5 [Ivl (-1) 1] [0] (Cos (Var 0)))"
+value "the (compute_tm 10 [Ivl (1) 3] [2] (Inverse (Var 0)))"
 
 
 subsection \<open>Computing bounds for floatarith expressions\<close>
@@ -1133,7 +1172,7 @@ subsection \<open>Computing bounds for floatarith expressions\<close>
 fun compute_ivl_bound :: "nat \<Rightarrow> float interval list \<Rightarrow> floatarith \<Rightarrow> float interval option"
 where "compute_ivl_bound n I f = (case compute_tm n I (map mid I) f of None \<Rightarrow> None | Some t \<Rightarrow> Some (compute_bound_tm t I))"
 
-value "map_option (map_interval real) (compute_ivl_bound 7 [Ivl (0) 2] (Power (Cos (Var 0)) 2))"
+value "map_option (map_interval real) (compute_ivl_bound 10 [Ivl (0) 2] (Power (Cos (Var 0)) 2))"
 
 (* Automatically computed bounds are correct. *)
 lemma compute_ivl_bound_correct:
