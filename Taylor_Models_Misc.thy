@@ -1,5 +1,7 @@
 theory Taylor_Models_Misc
 imports "~~/src/HOL/Library/Float"
+        "~~/src/HOL/Library/Function_Algebras"
+        "~~/src/HOL/Decision_Procs/Approximation"
 begin
 
 (* This theory contains anything that doesn't belong anywhere else. *)
@@ -67,5 +69,27 @@ proof-
   thus ?thesis
     by (simp add: y_def)
 qed
+
+lemma fun_pow: "f^n = (\<lambda>x. (f x)^n)"
+by (induction n, simp_all)
+
+(* Count the number of parameters of a floatarith expression *)
+fun num_vars :: "floatarith \<Rightarrow> nat"
+where "num_vars (Add a b) = max (num_vars a) (num_vars b)"
+    | "num_vars (Minus a) = num_vars a"
+    | "num_vars (Mult a b) = max (num_vars a) (num_vars b)"
+    | "num_vars (Inverse a) = num_vars a"
+    | "num_vars (Cos a) = num_vars a"
+    | "num_vars (Arctan a) = num_vars a"
+    | "num_vars (Min a b) = max (num_vars a) (num_vars b)"
+    | "num_vars (Max a b) = max (num_vars a) (num_vars b)"
+    | "num_vars (Abs a) = num_vars a"
+    | "num_vars (Sqrt a) = num_vars a"
+    | "num_vars (Exp a) = num_vars a"
+    | "num_vars (Ln a) = num_vars a"
+    | "num_vars (Var v) = Suc v"
+    | "num_vars (Power a n) = num_vars a"
+    | "num_vars (Num _) = 0"
+    | "num_vars Pi = 0"
 
 end

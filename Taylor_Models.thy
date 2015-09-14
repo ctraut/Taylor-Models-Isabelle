@@ -180,41 +180,49 @@ subsection \<open>Interval bounds for taylor models\<close>
 
 (* Bound a polynomial by simply evaluating it with interval arguments.
    TODO: This naive approach introduces significant over-approximation. *)
-fun compute_bound_tm :: "taylor_model \<Rightarrow> float interval list \<Rightarrow> float interval"
-where "compute_bound_tm (TaylorModel p e) Is = Ipoly Is p + e"
+fun compute_bound_poly :: "float poly \<Rightarrow> float interval list \<Rightarrow> float list \<Rightarrow> float interval"
+where "compute_bound_poly p I a = Ipoly I p"
+
+fun compute_bound_tm :: "taylor_model \<Rightarrow> float interval list \<Rightarrow> float list \<Rightarrow> float interval"
+where "compute_bound_tm (TaylorModel p e) I a = compute_bound_poly p I a + e"
+
+lemma compute_bound_poly_correct:
+assumes "num_params p \<le> length I"
+assumes "x all_in I"
+assumes "a all_in I"
+shows "Ipoly x (poly_map real p) \<in> set_of (compute_bound_poly p I a)"
+proof-
+  have "Ipoly x (poly_map real p) \<in> set_of (Ipoly (map (interval_map real) I) (poly_map interval_of (poly_map real p)))"
+    apply(rule Ipoly_interval_args_mono[OF assms(2)])
+    using assms(1) by simp
+  also have "... = set_of (interval_map real (Ipoly I (poly_map interval_of p)))"
+    apply(rule arg_cong[where f=set_of])
+    using assms(1)
+    by (induction p, simp_all)
+  finally show ?thesis
+    by simp
+qed
 
 lemma compute_bound_tm_correct:
-fixes S :: "real set list" 
 fixes I :: "float interval list"
 fixes x :: "real list"
 fixes f :: "real list \<Rightarrow> real"
 assumes "valid_tm I f t"
 assumes "x all_in I"
-shows "f x \<in> set_of (compute_bound_tm t I)"
+assumes "a all_in I"
+shows "f x \<in> set_of (compute_bound_tm t I a)"
 proof-
   obtain p l u where t_def: "t = TaylorModel p (Ivl l u)"
     by (metis interval.exhaust taylor_model.exhaust)
     
-  from assms
-  have valid:
+  from assms have valid:
     "num_params p \<le> length I"
     "f x - Ipoly x p \<in> set_of (Ivl l u)"
       by (auto simp: t_def)
      
-  have a1: "Ipoly x (poly_map real p) \<in> set_of (Ipoly (map (interval_map real) I) (poly_map interval_of (poly_map real p)))"
-    using assms(2)
-    by (rule Ipoly_interval_args_mono, simp_all add: valid(1))
-    
-  have a2: "poly_map interval_of (poly_map real p) = poly_map (interval_map real) (poly_map interval_of p)"
-    by (induction p, simp_all)
-  
-  show "f x \<in> set_of (compute_bound_tm t I)"
-    unfolding t_def compute_bound_tm.simps
-    using set_of_add_mono[OF a1 valid(2), unfolded a2, simplified]
-    apply(rule subst[where P="\<lambda>I. f x \<in> set_of I", rotated])
-    apply(subst Ipoly_real_float_interval_eqiv)
-    apply(rule xt1(4)[OF valid(1)])
-    by (induction p, simp_all)
+  show "f x \<in> set_of (compute_bound_tm t I a)"
+    using set_of_add_mono[OF compute_bound_poly_correct[OF valid(1) assms(2) assms(3)] valid(2)]
+    by (simp add: t_def del: compute_bound_poly.simps)
 qed
 
 
@@ -311,6 +319,7 @@ qed
 lemma deriv_0_0[simp]:
 shows "deriv_0 f 0 = f"
 by (cases "(f, 0::nat)" rule: deriv_0.cases, simp_all)
+
 
 subsubsection \<open>Automatic computation of taylor coefficients for univariate functions\<close>
 
@@ -673,7 +682,9 @@ proof-
   qed
 qed
 
-subsection \<open>Operations on taylor models\<close> 
+
+subsection \<open>Operations on taylor models\<close>
+
 fun tm_neg :: "taylor_model \<Rightarrow> taylor_model"
 where "tm_neg (TaylorModel p i) = TaylorModel (poly.Neg p) (-i)"
 
@@ -684,32 +695,32 @@ fun tm_sub :: "taylor_model \<Rightarrow> taylor_model \<Rightarrow> taylor_mode
 where "tm_sub t1 t2 = tm_add t1 (tm_neg t2)"
 
 (* TODO: Currently, this increases the degree of the polynomial! *)
-fun tm_mul :: "taylor_model \<Rightarrow> taylor_model \<Rightarrow> float interval list \<Rightarrow> taylor_model"
-where "tm_mul (TaylorModel p1 i1) (TaylorModel p2 i2) I = (
-  let d1=Ipoly I p1;
-      d2=Ipoly I p2
+fun tm_mul :: "taylor_model \<Rightarrow> taylor_model \<Rightarrow> float interval list \<Rightarrow> float list \<Rightarrow> taylor_model"
+where "tm_mul (TaylorModel p1 i1) (TaylorModel p2 i2) I a = (
+  let d1=compute_bound_poly p1 I a;
+      d2=compute_bound_poly p2 I a
   in TaylorModel (poly.Mul p1 p2) (i1*d2 + d1*i2 + i1*i2))"
   
-fun tm_pow :: "taylor_model \<Rightarrow> nat \<Rightarrow> float interval list \<Rightarrow> taylor_model"
-where "tm_pow t 0 I = TaylorModel (poly.C 1) (Ivl 0 0)"
-    | "tm_pow t (Suc n) I = tm_mul t (tm_pow t n I) I"
+fun tm_pow :: "taylor_model \<Rightarrow> nat \<Rightarrow> float interval list \<Rightarrow> float list \<Rightarrow> taylor_model"
+where "tm_pow t 0 I a = TaylorModel (poly.C 1) (Ivl 0 0)"
+    | "tm_pow t (Suc n) I a = tm_mul t (tm_pow t n I a) I a"
 
 fun tm_inc_error :: "taylor_model \<Rightarrow> float interval \<Rightarrow> taylor_model"
 where "tm_inc_error (TaylorModel p e) i = TaylorModel p (e+i)"
 
 (* Evaluates a float polynomial, using a taylor model as the parameter. This is used to compose taylor models. *)
-fun eval_poly_at_tm :: "float poly \<Rightarrow> taylor_model \<Rightarrow> float interval list \<Rightarrow> taylor_model"
-where "eval_poly_at_tm (poly.C c) t I = tm_const c"
-    | "eval_poly_at_tm (poly.Bound n) t I = (if n = 0 then t else undefined)"
-    | "eval_poly_at_tm (poly.Add p1 p2) t I = tm_add (eval_poly_at_tm p1 t I) (eval_poly_at_tm p2 t I)"
-    | "eval_poly_at_tm (poly.Sub p1 p2) t I = tm_sub (eval_poly_at_tm p1 t I) (eval_poly_at_tm p2 t I)"
-    | "eval_poly_at_tm (poly.Mul p1 p2) t I = tm_mul (eval_poly_at_tm p1 t I) (eval_poly_at_tm p2 t I) I"
-    | "eval_poly_at_tm (poly.Neg p) t I = tm_neg (eval_poly_at_tm p t I)"
-    | "eval_poly_at_tm (poly.Pw p n) t I = tm_pow (eval_poly_at_tm p t I) n I"
-    | "eval_poly_at_tm (poly.CN c n p) t I = tm_add (eval_poly_at_tm c t I) (tm_mul (if n = 0 then t else undefined) (eval_poly_at_tm p t I) I)"
+fun eval_poly_at_tm :: "float poly \<Rightarrow> taylor_model \<Rightarrow> float interval list \<Rightarrow> float list \<Rightarrow> taylor_model"
+where "eval_poly_at_tm (poly.C c) t I a = tm_const c"
+    | "eval_poly_at_tm (poly.Bound n) t I a = (if n = 0 then t else undefined)"
+    | "eval_poly_at_tm (poly.Add p1 p2) t I a = tm_add (eval_poly_at_tm p1 t I a) (eval_poly_at_tm p2 t I a)"
+    | "eval_poly_at_tm (poly.Sub p1 p2) t I a = tm_sub (eval_poly_at_tm p1 t I a) (eval_poly_at_tm p2 t I a)"
+    | "eval_poly_at_tm (poly.Mul p1 p2) t I a = tm_mul (eval_poly_at_tm p1 t I a) (eval_poly_at_tm p2 t I a) I a"
+    | "eval_poly_at_tm (poly.Neg p) t I a = tm_neg (eval_poly_at_tm p t I a)"
+    | "eval_poly_at_tm (poly.Pw p n) t I a = tm_pow (eval_poly_at_tm p t I a) n I a"
+    | "eval_poly_at_tm (poly.CN c n p) t I a = tm_add (eval_poly_at_tm c t I a) (tm_mul (if n = 0 then t else undefined) (eval_poly_at_tm p t I a) I a)"
 
-fun tm_comp :: "taylor_model \<Rightarrow> taylor_model \<Rightarrow> float interval list \<Rightarrow> taylor_model"
-where "tm_comp (TaylorModel p e) t I = tm_inc_error (eval_poly_at_tm p t I) e"
+fun tm_comp :: "taylor_model \<Rightarrow> taylor_model \<Rightarrow> float interval list \<Rightarrow> float list \<Rightarrow> taylor_model"
+where "tm_comp (TaylorModel p e) t I a = tm_inc_error (eval_poly_at_tm p t I a) e"
 
 (* Validity of is preserved under taylor model arithmetic. *)
 lemma tm_neg_valid:
@@ -784,7 +795,8 @@ lemma tm_mul_valid:
 assumes "valid_tm I f t1"
 assumes "valid_tm I g t2"
 assumes "all_nonempty I"
-shows "valid_tm I (f * g) (tm_mul t1 t2 I)"
+assumes "a all_in I"
+shows "valid_tm I (f * g) (tm_mul t1 t2 I a)"
 proof-
   from valid_tmD'[OF assms(1)]
   obtain p1 i1 where t1_def:
@@ -806,7 +818,7 @@ proof-
   have v2: "nonempty (Ipoly I (poly_map interval_of p2))"
     by (rule nonempty_Ipoly[OF assms(3) t2_def(3)])
       
-  show "valid_tm I (f * g) (tm_mul t1 t2 I)"
+  show "valid_tm I (f * g) (tm_mul t1 t2 I a)"
     unfolding t1_def t2_def tm_mul.simps Let_def
     apply(rule valid_tmI')
     unfolding taylor_model.inject
@@ -821,20 +833,6 @@ proof-
         using t1_def(4)[OF 1] by auto
       obtain d2 :: real where d2_def: "d2 \<in> set_of i2" "g x - Ipoly x p2 = d2"
         using t2_def(4)[OF 1] by auto
-        
-      have a1: "x all_in I" 
-        using 1(1) by simp
-      have a2: "num_params (poly_map real p1) \<le> length (map (interval_map real) I)"
-        using t1_def(3) by simp
-      have a2': "num_params (poly_map real p2) \<le> length (map (interval_map real) I)"
-        using t2_def(3) by simp
-        
-      have b1: "Ipoly x p1 \<in> set_of (Ipoly I (poly_map interval_of p1))"
-        using Ipoly_interval_args_mono[OF a1 a2] t1_def(3)
-        by (simp add: Ipoly_real_float_interval_eqiv')
-      have b2: "Ipoly x p2 \<in> set_of (Ipoly I (poly_map interval_of p2))"
-        using Ipoly_interval_args_mono[OF a1 a2'] t2_def(3)
-        by (simp add: Ipoly_real_float_interval_eqiv')
       
       have "(f * g) x = f x * g x"
         by auto
@@ -844,17 +842,15 @@ proof-
         by (simp add: algebra_simps)
       finally have f_times_g_eq: "(f * g) x - Ipoly x p1 * Ipoly x p2 = d1 * Ipoly x p2 + Ipoly x p1 * d2 + d1 * d2"
         by simp
-      also have "... \<in> set_of (interval_map real (i1 * Ipoly I (poly_map interval_of p2))) +  set_of (interval_map real (Ipoly I (poly_map interval_of p1) * i2)) + set_of (i1 * i2)"
+      also have "... \<in> set_of (i1 * compute_bound_poly p2 I a) +  set_of (compute_bound_poly p1 I a * i2) + set_of (i1 * i2)"
         apply(rule set_plus_intro[OF set_plus_intro])
-        using d1_def(1) d2_def(1) b1 b2
+        using d1_def(1) d2_def(1) compute_bound_poly_correct[OF t1_def(3) 1(1) `a all_in I`] compute_bound_poly_correct[OF t2_def(3) 1(1) `a all_in I`]
         by (simp_all add: set_of_mult_mono)
-      also have "... = set_of (interval_map real (i1 * Ipoly I (poly_map interval_of p2) + Ipoly I (poly_map interval_of p1) * i2 + i1 * i2))"
+      also have "... = set_of (i1 * compute_bound_poly p2 I a + compute_bound_poly p1 I a * i2 + i1 * i2)"
         by (simp add: v1 v2 t1_def(2) t2_def(2) set_of_add_distrib nonempty_add)
-      finally have "(f * g) x - Ipoly x p1 * Ipoly x p2  \<in> set_of (interval_map real (i1 * Ipoly I (poly_map interval_of p2) + Ipoly I (poly_map interval_of p1) * i2 + i1 * i2))"
+      finally have "(f * g) x - Ipoly x p1 * Ipoly x p2  \<in> set_of (i1 * compute_bound_poly p2 I a + compute_bound_poly p1 I a * i2 + i1 * i2)"
         .
-
-      thus ?case
-      by simp
+      thus ?case by simp
     next
       case 2
       show ?case
@@ -866,13 +862,11 @@ qed
 lemma tm_pow_valid:
 assumes "valid_tm I f t"
 assumes "all_nonempty I"
-shows "valid_tm I (f ^ n) (tm_pow t n I)"
+assumes "a all_in I"
+shows "valid_tm I (f ^ n) (tm_pow t n I a)"
 apply(induction n, simp)
-using assms(1) tm_mul_valid[OF _ _ assms(2)]
+using assms(1) tm_mul_valid[OF _ _ assms(2,3)]
 by force
-
-lemma fun_pow: "f^n = (\<lambda>x. (f x)^n)"
-by (induction n, simp_all)
         
 lemma tm_comp_valid:
 assumes "all_nonempty I"
@@ -880,7 +874,8 @@ assumes "all_nonempty I"
 assumes gI_def: "\<And>x. length x = length I \<Longrightarrow> (\<forall>n<length I. x!n \<in> set_of (I!n)) \<Longrightarrow> g x \<in> set_of gI"
 assumes t1_def: "valid_tm [gI] (\<lambda>x. f (x ! 0)) t1"
 assumes t2_def: "valid_tm I g t2"
-shows "valid_tm I (f o g) (tm_comp t1 t2 I)"
+assumes "a all_in I"
+shows "valid_tm I (f o g) (tm_comp t1 t2 I a)"
 proof-
   obtain pf ef where t1_decomp: "t1 = TaylorModel pf ef" using taylor_model.exhaust by auto
   obtain pg eg where t2_decomp: "t2 = TaylorModel pg eg" using taylor_model.exhaust by auto
@@ -898,10 +893,10 @@ proof-
     "\<And>x::real list. x all_in I \<Longrightarrow> g x - Ipoly x (poly_map real pg) \<in> set_of (interval_map real eg)"
       by (auto simp: t2_decomp)
       
-  obtain p' e' where p'e'_def: "TaylorModel p' e' = eval_poly_at_tm pf t2 I"
+  obtain p' e' where p'e'_def: "TaylorModel p' e' = eval_poly_at_tm pf t2 I a"
     using taylor_model.exhaust by metis
     
-  have "valid_tm I ((\<lambda>x. Ipoly [x] pf) o g) (eval_poly_at_tm pf t2 I)"
+  have "valid_tm I ((\<lambda>x. Ipoly [x] pf) o g) (eval_poly_at_tm pf t2 I a)"
     using t1_valid(2)
     proof(induction pf)
       case (C c) thus ?case
@@ -917,16 +912,16 @@ proof-
         using tm_sub_valid by (simp add: fun_diff_def)
     next
       case (Mul p1l p1r) thus ?case 
-        using tm_mul_valid[OF _ _ `all_nonempty I`] by (simp add: func_times)
+        using tm_mul_valid[OF _ _ `all_nonempty I` `a all_in I`] by (simp add: func_times)
     next
       case (Neg p1') thus ?case 
         using tm_neg_valid by (simp add: fun_Compl_def)
     next
       case (Pw p1' n) thus ?case 
-        using tm_pow_valid[OF _ `all_nonempty I`] by (simp add: fun_pow)
+        using tm_pow_valid[OF _ `all_nonempty I` `a all_in I`] by (simp add: fun_pow)
     next
       case (CN p1l n p1r) thus ?case 
-        using tm_add_valid[OF _ tm_mul_valid[OF _ _ `all_nonempty I`], unfolded func_plus func_times] t2_def by simp
+        using tm_add_valid[OF _ tm_mul_valid[OF _ _ `all_nonempty I` `a all_in I`], unfolded func_plus func_times] t2_def by simp
     qed
      
   hence eval_poly_at_tm_valid:
@@ -966,23 +961,23 @@ where "compute_tm _ I _ (Num c) = Some (tm_const c)"
     | "compute_tm n I a (Minus f) = map_option (\<lambda>t. tm_neg t) (compute_tm n I a f)"
     | "compute_tm n I a (Mult l r) = (
          case (compute_tm n I a l, compute_tm n I a r) 
-         of (Some t1, Some t2) \<Rightarrow> Some (tm_mul t1 t2 I)
+         of (Some t1, Some t2) \<Rightarrow> Some (tm_mul t1 t2 I a)
           | _ \<Rightarrow> None)"     
-    | "compute_tm n I a (Power f k) = map_option (\<lambda>t. tm_pow t k I) (compute_tm n I a f)"
+    | "compute_tm n I a (Power f k) = map_option (\<lambda>t. tm_pow t k I a) (compute_tm n I a f)"
     | "compute_tm n I a (Inverse f) = (
          case compute_tm n I a f
          of Some t2 \<Rightarrow> (
-           let I' = compute_bound_tm t2 I; a' = compute_bound_tm t2 a
+           let I' = compute_bound_tm t2 I a; a' = compute_bound_tm t2 a a
            in if real (lower I') \<le> 0 \<and> 0 \<le> real (upper I') then None else
               case tm_floatarith n I' (mid a') (Inverse (Var 0))
-              of Some t1 \<Rightarrow> Some (tm_comp t1 t2 I)
+              of Some t1 \<Rightarrow> Some (tm_comp t1 t2 I a)
               | _ \<Rightarrow> None)
          | _ \<Rightarrow> None)"
     | "compute_tm n I a (Cos f) = (
          case compute_tm n I a f
          of Some t2 \<Rightarrow> (
-           case tm_floatarith n (compute_bound_tm t2 I) (mid (compute_bound_tm t2 a)) (Cos (Var 0))
-           of Some t1 \<Rightarrow> Some (tm_comp t1 t2 I)
+           case tm_floatarith n (compute_bound_tm t2 I a) (mid (compute_bound_tm t2 a a)) (Cos (Var 0))
+           of Some t1 \<Rightarrow> Some (tm_comp t1 t2 I a)
            | _ \<Rightarrow> None)
          | _ \<Rightarrow> None)"
     | "compute_tm _ _ _ _ = None"
@@ -1030,7 +1025,7 @@ next
     by (metis (no_types, lifting) Mult(4) compute_tm.simps(5) option.case_eq_if option.collapse prod.case)
   obtain t2 where t2_def: "Some t2 = compute_tm n I a r"
     by (smt Mult(4) compute_tm.simps(5) option.case_eq_if option.collapse prod.case)
-  have t_def: "t = tm_mul t1 t2 I"
+  have t_def: "t = tm_mul t1 t2 I a"
     using Mult(4) t1_def t2_def
     by (metis compute_tm.simps(5) option.case(2) option.inject prod.case)
   
@@ -1038,25 +1033,25 @@ next
     by auto
   show "valid_tm I (interpret_floatarith (floatarith.Mult l r)) t"
     apply(simp add: t_def)
-    apply(rule tm_mul_valid[OF Mult(1)[OF _ t1_def] Mult(2)[OF _ t2_def]])
-    using Mult(3) `all_nonempty I` by auto
+    apply(rule tm_mul_valid[OF Mult(1)[OF _ t1_def] Mult(2)[OF _ t2_def] `all_nonempty I` `a all_in I`])
+    using Mult(3) by auto
 next
   case (Power f k t)
   from Power(3)
   obtain tm_f where tm_f_def: "Some tm_f =  compute_tm n I a f"
     apply(simp) using map_option_eq_Some by metis
-  have t_decomp: "t = tm_pow tm_f k I"
+  have t_decomp: "t = tm_pow tm_f k I a"
     using Power(3) by (simp add: tm_f_def[symmetric])
   show ?case
-    using tm_pow_valid[OF Power(1)[OF Power(2)[simplified] tm_f_def] `all_nonempty I`]
+    using tm_pow_valid[OF Power(1)[OF Power(2)[simplified] tm_f_def] `all_nonempty I` `a all_in I`]
     by (simp add: t_decomp fun_pow)
 next
   case (Inverse f t)
   obtain tm_f where tm_f_def: "Some tm_f = compute_tm n I a f"
     using Inverse(3)[unfolded compute_tm.simps]
     by (metis (no_types, lifting) option.case_eq_if option.collapse)
-  def I'\<equiv>"compute_bound_tm tm_f I"
-  def a'\<equiv>"compute_bound_tm tm_f a"
+  def I'\<equiv>"compute_bound_tm tm_f I a"
+  def a'\<equiv>"compute_bound_tm tm_f a a"
   have zero_notin_I': "\<not>(real (lower I') \<le> 0 \<and> 0 \<le> real (upper I'))"
     using Inverse(3)
     by (auto simp: I'_def tm_f_def[symmetric])
@@ -1066,7 +1061,7 @@ next
     using zero_notin_I'[unfolded I'_def]
     by (metis (mono_tags, lifting) interval_of_def map_eq_conv option.case_eq_if option.collapse)
     
-  have t_decomp: "t = tm_comp tm_inv tm_f I"
+  have t_decomp: "t = tm_comp tm_inv tm_f I a"
     using Inverse(3)
     apply(simp add: I'_def[symmetric] a'_def[symmetric] tm_f_def[symmetric] del: tm_floatarith.simps)
     by (metis option.distinct(1) option.inject option.simps(5) tm_inv_def)
@@ -1076,20 +1071,20 @@ next
   obtain tm_f_p tm_f_e where tm_f_decomp: "tm_f = TaylorModel tm_f_p tm_f_e"
     using taylor_model.exhaust by metis
   
-  have "mid (compute_bound_tm tm_f (map interval_of a)) \<in> set_of (compute_bound_tm tm_f (map interval_of a))"
+  have "mid (compute_bound_tm tm_f (map interval_of a) a) \<in> set_of (compute_bound_tm tm_f (map interval_of a) a)"
     apply(rule mid_in_interval)
     using valid_tm_tm_f `a all_in I`
     apply(simp add: tm_f_decomp)
     apply(rule nonempty_add[OF nonempty_Ipoly])
     by (simp_all add: nonempty_add[OF nonempty_Ipoly])
-  also have "... \<subseteq> set_of (compute_bound_tm tm_f I)"
+  also have "... \<subseteq> set_of (compute_bound_tm tm_f I a)"
     using `a all_in I` valid_tm_tm_f
     apply(simp add: tm_f_decomp)
     apply(rule set_of_add_inc_left[OF nonempty_Ipoly])
     apply(simp_all add: tm_f_decomp)
     apply(rule Ipoly_interval_args_inc_mono)
     by simp_all
-  finally have a1: "mid (compute_bound_tm tm_f (map interval_of a)) \<in> set_of (compute_bound_tm tm_f I)"
+  finally have a1: "mid (compute_bound_tm tm_f (map interval_of a) a) \<in> set_of (compute_bound_tm tm_f I a)"
     .
     
   have [simp]: "interpret_floatarith (Inverse (Var 0)) = (\<lambda>x. inverse (x ! 0))"
@@ -1097,17 +1092,17 @@ next
     
   have I'_decomp: "I' = Ivl (lower I') (upper I')"
     by (simp add: add_left_imp_eq plus_interval_def)
-  have "0 \<notin> set_of (interval_map real (compute_bound_tm tm_f I))"
+  have "0 \<notin> set_of (interval_map real (compute_bound_tm tm_f I a))"
     apply(subst I'_decomp[unfolded I'_def])
     using zero_notin_I' by (simp add: I'_def)
-  hence a2: "valid_tm [compute_bound_tm tm_f I] (\<lambda>x. inverse (x ! 0)) tm_inv"
+  hence a2: "valid_tm [compute_bound_tm tm_f I a] (\<lambda>x. inverse (x ! 0)) tm_inv"
     using tm_floatarith_valid[OF `0 < n` a1 _ tm_inv_def[unfolded I'_def a'_def]] 
     by auto
     
   show ?case
     unfolding t_decomp
-    using tm_comp_valid[OF `all_nonempty I` _ a2 Inverse(1)[OF _ tm_f_def]]
-          compute_bound_tm_correct[OF Inverse(1)[OF _ tm_f_def]]
+    using tm_comp_valid[OF `all_nonempty I` _ a2 Inverse(1)[OF _ tm_f_def] `a all_in I`]
+          compute_bound_tm_correct[OF Inverse(1)[OF _ tm_f_def] _ `a all_in I`]
           tm_floatarith_valid[OF `0 < n` a1 _ tm_inv_def[unfolded I'_def a'_def]] Inverse.prems(1)
     by auto
 next
@@ -1115,10 +1110,10 @@ next
   obtain tm_f where tm_f_def: "Some tm_f = compute_tm n I a f"
     using Cos(3)[unfolded compute_tm.simps]
     by (metis (no_types, lifting) option.case_eq_if option.collapse)
-  then obtain tm_cos where tm_cos_def: "Some tm_cos = tm_floatarith n (compute_bound_tm tm_f I) (mid (compute_bound_tm tm_f (map interval_of a))) (Cos (Var 0))"
+  then obtain tm_cos where tm_cos_def: "Some tm_cos = tm_floatarith n (compute_bound_tm tm_f I a) (mid (compute_bound_tm tm_f (map interval_of a) a)) (Cos (Var 0))"
     using Cos(3)[unfolded compute_tm.simps]
     by (metis (no_types, lifting) option.case_eq_if option.collapse option.simps(5))
-  have t_decomp: "t = tm_comp tm_cos tm_f I"
+  have t_decomp: "t = tm_comp tm_cos tm_f I a"
     using Cos(3) tm_f_def[symmetric] tm_cos_def[symmetric]
     by auto
   have valid_tm_tm_f: "valid_tm I (interpret_floatarith f) tm_f"
@@ -1127,29 +1122,29 @@ next
   obtain tm_f_p tm_f_e where tm_f_decomp: "tm_f = TaylorModel tm_f_p tm_f_e"
     using taylor_model.exhaust by metis
   
-  have "mid (compute_bound_tm tm_f (map interval_of a)) \<in> set_of (compute_bound_tm tm_f (map interval_of a))"
+  have "mid (compute_bound_tm tm_f (map interval_of a) a) \<in> set_of (compute_bound_tm tm_f (map interval_of a) a)"
     apply(rule mid_in_interval)
     using valid_tm_tm_f `a all_in I`
     apply(simp add: tm_f_decomp)
     apply(rule nonempty_add[OF nonempty_Ipoly])
     by (simp_all add: nonempty_add[OF nonempty_Ipoly])
-  also have "... \<subseteq> set_of (compute_bound_tm tm_f I)"
+  also have "... \<subseteq> set_of (compute_bound_tm tm_f I a)"
     using `a all_in I` valid_tm_tm_f
     apply(simp add: tm_f_decomp)
     apply(rule set_of_add_inc_left[OF nonempty_Ipoly])
     apply(simp_all add: tm_f_decomp)
     apply(rule Ipoly_interval_args_inc_mono)
     by simp_all
-  finally have a1: "mid (compute_bound_tm tm_f (map interval_of a)) \<in> set_of (compute_bound_tm tm_f I)"
+  finally have a1: "mid (compute_bound_tm tm_f (map interval_of a) a) \<in> set_of (compute_bound_tm tm_f I a)"
     .
-  have a2: "valid_tm [compute_bound_tm tm_f I] (\<lambda>x. cos (x ! 0)) tm_cos"
+  have a2: "valid_tm [compute_bound_tm tm_f I a] (\<lambda>x. cos (x ! 0)) tm_cos"
     using tm_floatarith_valid[OF `0 < n` a1 _ tm_cos_def, simplified]
     by auto
     
   show ?case
     unfolding t_decomp
-    using tm_comp_valid[OF `all_nonempty I` _ a2 Cos(1)[OF _ tm_f_def]]
-          compute_bound_tm_correct[OF Cos(1)[OF _ tm_f_def]]
+    using tm_comp_valid[OF `all_nonempty I` _ a2 Cos(1)[OF _ tm_f_def] `a all_in I`]
+          compute_bound_tm_correct[OF Cos(1)[OF _ tm_f_def] _ `a all_in I`]
           tm_floatarith_valid[OF `0 < n` a1 _ tm_cos_def] Cos.prems(1)
     by auto
 qed (simp_all add: valid_tm_def)
@@ -1161,16 +1156,16 @@ value "the (compute_tm 7 [Ivl 0 2] [1] (Var 0))"
 value "the (compute_tm 7 [Ivl 0 2, Ivl 0 2] [1,1] (Add (Var 0) (Var 1)))"
 value "the (compute_tm 10 [Ivl (-1) 1] [0] (Cos (Var 0)))"
 (* TODO: This is far too slow! *)
-value "the (compute_tm 10 [Ivl (1) 3] [2] (Inverse (Var 0)))"
+value "the (compute_tm 5 [Ivl (1) 3] [2] (Inverse (Var 0)))"
 
 
 subsection \<open>Computing bounds for floatarith expressions\<close>
 
 (* Automatically find interval bounds for floatarith expressions. *)
 fun compute_ivl_bound :: "nat \<Rightarrow> float interval list \<Rightarrow> floatarith \<Rightarrow> float interval option"
-where "compute_ivl_bound n I f = (case compute_tm n I (map mid I) f of None \<Rightarrow> None | Some t \<Rightarrow> Some (compute_bound_tm t I))"
+where "compute_ivl_bound n I f = (case compute_tm n I (map mid I) f of None \<Rightarrow> None | Some t \<Rightarrow> Some (compute_bound_tm t I (map mid I)))"
 
-value "map_option (map_interval real) (compute_ivl_bound 10 [Ivl (0) 2] (Power (Cos (Var 0)) 2))"
+value "map_option (map_interval real) (compute_ivl_bound 10 [Ivl (-1) 1] (Power (Cos (Var 0)) 2))"
 
 (* Automatically computed bounds are correct. *)
 lemma compute_ivl_bound_correct:
@@ -1182,7 +1177,7 @@ assumes "x all_in I"
 shows "interpret_floatarith f x \<in> set_of B"
 proof-
   (* Since we have a bound B, there must have been a taylor model used to compute it. *)
-  from assms(3) obtain t where B_def: "B = compute_bound_tm t I" 
+  from assms(3) obtain t where B_def: "B = compute_bound_tm t I (map mid I)" 
                            and t_def: "Some t = compute_tm n I (map mid I) f"
     by (simp, metis (mono_tags, lifting) option.case_eq_if option.collapse option.distinct(1) option.inject)
   

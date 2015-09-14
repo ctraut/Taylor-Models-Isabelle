@@ -31,7 +31,7 @@ where "interval_map f (Ivl l u) = Ivl (f l) (f u)"
 (* TODO: Non-emptiness should be intrinsic to the interval type,
          i.e. it should be a true subset of the set of all possible intervals.
          Is this even possible? *)
-primrec nonempty :: "('a::order) interval \<Rightarrow> bool"
+primrec nonempty :: "'a::order interval \<Rightarrow> bool"
 where "nonempty (Ivl l u) = (l \<le> u)"
 
 lemmas [simp] = lower_def upper_def
@@ -210,7 +210,7 @@ proof-
   show ?thesis by simp
 qed  
 
-(* Validity is preserved under arithmetic. *)
+(* Non-emptiness is preserved under arithmetic. *)
 lemma nonempty_add:
 fixes A :: "'a::linordered_idom interval"
 assumes "nonempty A"
@@ -242,7 +242,7 @@ proof-
   from assms show ?thesis by (simp add: A_def uminus_interval_def)
 qed
 
-(* Multiplication always returns a valid interval. *)
+(* Multiplication always returns a proper interval. *)
 lemma nonempty_mul[simp]:
 fixes A :: "'a::linordered_idom interval"
 shows "nonempty (A * B)"
