@@ -86,21 +86,11 @@ proof-
   thus ?thesis by (simp add: horner_eval.simps zero_interval_def)
 qed
 
-lemma nonempty_horner_eval:
-fixes I::"'a::linordered_idom interval"
-assumes "nonempty I"
-assumes "\<And>i. i < n \<Longrightarrow> nonempty (f i)"
-shows "nonempty (horner_eval f I n)"
-using assms
-by (induction n arbitrary: f, simp_all add: nonempty_add zero_interval_def)
-
 lemma horner_eval_interval_subset:
 fixes I::"real interval"
-assumes "nonempty I"
 assumes "set_of I \<subseteq> set_of J"
-assumes "\<And>i. i < n \<Longrightarrow> nonempty (f i)"
 shows "set_of (horner_eval f I n) \<subseteq> set_of (horner_eval f J n)"
 using assms
-by (induction n arbitrary: f, simp_all add: set_of_add_inc_right set_of_mul_inc nonempty_horner_eval)
+by (induction n arbitrary: f, simp_all add: set_of_add_inc_right set_of_mul_inc)
 
 end

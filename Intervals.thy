@@ -5,36 +5,75 @@ begin
 
 (* I define my own interval type here. I then define the basic arithmetic operations on the intervals. 
    This way, I can define and evaluate polynomials over the set of intervals. *)
-datatype 'a interval = Ivl 'a 'a
+typedef 'a interval = "{(a::'a::order, b). a \<le> b}"
+  by auto
 
-primrec lower :: "'a interval \<Rightarrow> 'a"
-where "lower (Ivl l u) = l"
+setup_lifting type_definition_interval
 
-primrec upper :: "'a interval \<Rightarrow> 'a"
-where "upper (Ivl l u) = u"
+lift_definition Ivl::"'a::order \<Rightarrow> 'a \<Rightarrow> 'a interval"
+is "\<lambda>a b. (a, max a b)"
+  by (simp add: max_def)
 
-primrec mid :: "float interval \<Rightarrow> float"
-where "mid (Ivl l u) = (l + u) * Float 1 (-1)"
+lift_definition proc_of::"'a::order interval \<Rightarrow> 'a \<times> 'a"
+is Rep_interval .
+  
+lift_definition lower::"('a::order) interval \<Rightarrow> 'a" is fst .
+lift_definition upper::"('a::order) interval \<Rightarrow> 'a" is snd .
 
-primrec proc_of :: "'a interval \<Rightarrow> 'a \<times> 'a"
-where "proc_of (Ivl l u) = (l, u)"
+definition mid :: "float interval \<Rightarrow> float"
+where "mid i = (lower i + upper i) * Float 1 (-1)"
 
-primrec set_of :: "('a::order) interval \<Rightarrow> 'a set"
-where "set_of (Ivl l u) = {l..u}"
+definition set_of :: "'a::order interval \<Rightarrow> 'a set"
+where "set_of i = {lower i..upper i}"
 
-definition interval_of :: "'a \<Rightarrow> 'a interval"
+definition interval_of :: "'a::order \<Rightarrow> 'a interval"
 where "interval_of x = Ivl x x"
 
-primrec interval_map :: "('a \<Rightarrow> 'b) \<Rightarrow> 'a interval \<Rightarrow> 'b interval"
-where "interval_map f (Ivl l u) = Ivl (f l) (f u)"
+definition interval_map :: "('a::order \<Rightarrow> 'b::order) \<Rightarrow> 'a interval \<Rightarrow> 'b interval"
+where "interval_map f i = Ivl (f (lower i)) (f (upper i))"
 
-(* TODO: Non-emptiness should be intrinsic to the interval type,
-         i.e. it should be a true subset of the set of all possible intervals.
-         Is this even possible? *)
-primrec nonempty :: "'a::order interval \<Rightarrow> bool"
-where "nonempty (Ivl l u) = (l \<le> u)"
+lemmas [simp] = proc_of_def
 
-lemmas [simp] = lower_def upper_def
+lemma lower_le_upper:
+shows "lower i \<le> upper i"
+proof-
+  obtain y where i_def: "i = Abs_interval y" and y_def: "y \<in> {(a, b). a \<le> b}"
+    using Abs_interval_cases by auto
+  hence "fst y \<le> snd y"
+    by auto
+  thus ?thesis
+    by (simp add: i_def interval.Abs_interval_inverse[OF y_def] lower_def upper_def)
+qed
+
+lemma lower_Ivl[simp]:
+shows "lower (Ivl a b) = a"
+by (simp add: Ivl.rep_eq lower.rep_eq)
+
+lemma upper_Ivl_a[simp]:
+assumes "b \<le> a"
+shows "upper (Ivl a b) = a"
+using assms
+by (simp add: upper_def Ivl.rep_eq max_def)
+
+lemma upper_Ivl_b[simp]:
+assumes "a \<le> b"
+shows "upper (Ivl a b) = b"
+using assms
+by (simp add: upper_def Ivl.rep_eq max_def)
+
+lemma lower_refl[simp]:
+shows "lower (Ivl a a) = a"
+by (simp add: Ivl.rep_eq lower.rep_eq)
+
+lemma upper_refl[simp]:
+shows "upper (Ivl a a) = a"
+by (simp add: Ivl.rep_eq max_def upper.rep_eq)
+
+lemma interval_exhaust:
+obtains l u
+where "(i::'a::order interval) = Ivl l u"
+and   "l \<le> u"
+by (metis Ivl.abs_eq Rep_interval_inverse lower.rep_eq lower_le_upper max_absorb2 prod.swap_def swap_simp swap_swap upper.rep_eq)
 
 (* Definitions that make some common assumptions about lists of intervals easier to write. *)
 definition all_in :: "'a::order list \<Rightarrow> 'a interval list \<Rightarrow> bool"
@@ -45,17 +84,12 @@ definition all_subset :: "'a::order interval list \<Rightarrow> 'a interval list
 (infix "(all'_subset)" 50)
 where "I all_subset J = (length I = length J \<and> (\<forall>i < length I. set_of (I!i) \<subseteq> set_of (J!i)))"
 
-definition all_nonempty ::"'a::order interval list \<Rightarrow> bool"
-where "all_nonempty I = (\<forall>i < length I. nonempty (I!i))"
-
-lemmas [simp] = all_in_def all_subset_def all_nonempty_def
+lemmas [simp] = all_in_def all_subset_def
 
 lemma mid_in_interval:
-assumes "nonempty i"
 shows "mid i \<in> set_of i"
 proof-
-  obtain l u where i_def: "i = Ivl l u" using interval.exhaust by auto
-  from assms have "l \<le> u" by (simp add: i_def)
+  obtain l u where i_def: "i = Ivl l u" and "l \<le> u" using interval_exhaust by blast
   
   {
     have "real l * Float 1 1  \<le> (real l + real u)"
@@ -75,21 +109,21 @@ proof-
       by (simp add: Float.compute_float_one Float.compute_float_times)
   }
   ultimately show ?thesis
-    by (simp add: i_def)
+    by (simp add: i_def set_of_def mid_def)
 qed
 
 (* Arithmetic on intervals. *)
-instantiation "interval" :: (plus) plus
+instantiation "interval" :: ("{order,plus}") plus
 begin
   definition "a + b = Ivl (lower a + lower b) (upper a + upper b)"
   instance ..
 end
-instantiation "interval" :: (minus) minus
+instantiation "interval" :: ("{order,minus}") minus
 begin
   definition "a - b = Ivl (lower a - upper b) (upper a - lower b)"
   instance ..
 end
-instantiation "interval" :: (uminus) uminus
+instantiation "interval" :: ("{order,uminus}") uminus
 begin
   definition "-a = Ivl (-upper a) (-lower a)"
   instance ..
@@ -102,22 +136,22 @@ definition "a * b = Ivl (min (min (lower a * lower b) (upper a * lower b))
                              (max (lower a * upper b) (upper a * upper b)))"
 instance ..
 end
-instantiation "interval" :: (zero) zero
+instantiation "interval" :: ("{order,zero}") zero
 begin
   definition "0 = Ivl 0 0"
   instance ..
 end
-instantiation "interval" :: (one) one
+instantiation "interval" :: ("{order,one}") one
 begin
   definition "1 = Ivl 1 1"
   instance ..
 end
-instantiation "interval" :: ("{inverse,order}") inverse
+instantiation "interval" :: ("{order,inverse}") inverse
 begin
   definition "inverse a = Ivl (min (inverse (lower a)) (inverse (upper a))) (max (inverse (lower a)) (inverse (upper a)))"
   instance ..
 end
-instantiation "interval" :: ("{times,one,order}") power
+instantiation "interval" :: ("{order,times,one}") power
 begin
   instance ..
 end
@@ -128,16 +162,16 @@ begin
   proof
     fix a b c::"'a interval"
     show "a + b + c = a + (b + c)"
-      by (simp add: plus_interval_def)
+      apply(cases a rule: interval_exhaust, cases b rule: interval_exhaust, cases c rule: interval_exhaust)
+      by (simp add: plus_interval_def algebra_simps)
   next
     fix a b::"'a interval"
     show "a + b = b + a"
-      by (simp add: plus_interval_def)
+      by (simp add: plus_interval_def algebra_simps)
   next
     fix a::"'a interval"
-    obtain l u where a_decomp: "a = Ivl l u" using interval.exhaust by auto
     show "0 + a = a"
-      by (simp add: a_decomp plus_interval_def zero_interval_def)
+      by (cases a rule: interval_exhaust, simp add: plus_interval_def zero_interval_def)
   qed
 end
 
@@ -146,21 +180,19 @@ begin
   instance
   proof
     fix a b c::"'a interval"
-    obtain la ua where [simp]: "a = Ivl la ua" using interval.exhaust by auto
-    obtain lb ub where [simp]: "b = Ivl lb ub" using interval.exhaust by auto
-    obtain lc uc where [simp]: "c = Ivl lc uc" using interval.exhaust by auto
     assume "a + b = a + c"
     thus "b = c"
-      by (simp add: plus_interval_def)
+      apply(cases a rule: interval_exhaust, cases b rule: interval_exhaust, cases c rule: interval_exhaust)
+      apply(simp add: plus_interval_def)
+      by (metis add.commute add_mono add_right_imp_eq lower_Ivl upper_Ivl_b)
   next
     
     fix a b c::"'a interval"
-    obtain la ua where [simp]: "a = Ivl la ua" using interval.exhaust by auto
-    obtain lb ub where [simp]: "b = Ivl lb ub" using interval.exhaust by auto
-    obtain lc uc where [simp]: "c = Ivl lc uc" using interval.exhaust by auto
     assume "b + a = c + a"
     thus "b = c"
-      by (simp add: plus_interval_def)
+      apply(cases a rule: interval_exhaust, cases b rule: interval_exhaust, cases c rule: interval_exhaust)
+      apply(simp add: plus_interval_def)
+      by (metis add_mono_thms_linordered_semiring(1) add_right_cancel lower_Ivl upper_Ivl_b)
   qed
 end
 
@@ -186,95 +218,19 @@ by (simp add: times_interval_def zero_interval_def)
 
 lemma one_times_ivl_left[simp]:
 fixes A :: "'a::linordered_idom interval"
-assumes "nonempty A"
 shows "1 * A = A"
-proof-
-  obtain l u where [simp]: "A = Ivl l u" using interval.exhaust by auto
-  show ?thesis
-    using assms
-    by (auto simp: times_interval_def one_interval_def)
-qed
+by (cases A rule: interval_exhaust, auto simp: times_interval_def one_interval_def min_def max_def)
 
 lemma one_times_ivl_right[simp]:
 fixes A :: "'a::linordered_idom interval"
-assumes "nonempty A"
 shows "A * 1 = A"
 using one_times_ivl_left[OF assms, unfolded interval_mul_commute]
-by simp
+by assumption
 
 lemma [simp]:
 fixes A :: "float interval"
 shows "(real a \<in> set_of (interval_map real A)) = (a \<in> set_of A)"
-proof-
-  obtain l u where [simp]: "A = Ivl l u" using interval.exhaust by auto
-  show ?thesis by simp
-qed  
-
-(* Non-emptiness is preserved under arithmetic. *)
-lemma nonempty_add:
-fixes A :: "'a::linordered_idom interval"
-assumes "nonempty A"
-assumes "nonempty B"
-shows "nonempty (A + B)"
-proof-
-  obtain la ua where A_def: "A = Ivl la ua" using interval.exhaust by auto
-  obtain lb ub where B_def: "B = Ivl lb ub" using interval.exhaust by auto
-  from assms show ?thesis by (simp add: A_def B_def plus_interval_def)
-qed
-
-lemma nonempty_sub:
-fixes A :: "'a::linordered_idom interval"
-assumes "nonempty A"
-assumes "nonempty B"
-shows "nonempty (A - B)"
-proof-
-  obtain la ua where A_def: "A = Ivl la ua" using interval.exhaust by auto
-  obtain lb ub where B_def: "B = Ivl lb ub" using interval.exhaust by auto
-  from assms show ?thesis by (simp add: A_def B_def minus_interval_def)
-qed
-
-lemma nonempty_neg:
-fixes A :: "'a::linordered_idom interval"
-assumes "nonempty A"
-shows "nonempty (-A)"
-proof-
-  obtain la ua where A_def: "A = Ivl la ua" using interval.exhaust by auto
-  from assms show ?thesis by (simp add: A_def uminus_interval_def)
-qed
-
-(* Multiplication always returns a proper interval. *)
-lemma nonempty_mul[simp]:
-fixes A :: "'a::linordered_idom interval"
-shows "nonempty (A * B)"
-by (simp add: times_interval_def)
-
-lemma nonempty_pow:
-fixes A :: "'a::linordered_idom interval"
-assumes "nonempty A"
-shows "nonempty (A ^ n)"
-using assms
-by (induction n, simp_all add: one_interval_def)
-
-lemma nonempty_subset:
-fixes A :: "'a::linordered_idom interval"
-assumes "nonempty A"
-assumes "set_of A \<subseteq> set_of A'"
-shows "nonempty A'"
-proof-
-  obtain la ua where [simp]: "A = Ivl la ua" using interval.exhaust by auto
-  obtain la' ua' where [simp]: "A' = Ivl la' ua'" using interval.exhaust by auto
-  from assms
-  show ?thesis
-    by simp
-qed
-
-lemma nonempty_nonempty_equiv:
-fixes A :: "'a::linordered_idom interval"
-shows "nonempty A \<longleftrightarrow> set_of A \<noteq> {}"
-proof-
-  obtain la ua where [simp]: "A = Ivl la ua" using interval.exhaust by auto
-  from assms show ?thesis by simp
-qed
+by (cases A rule: interval_exhaust, simp add: set_of_def interval_map_def)
 
 (* Coercions on intervals. *)
 lemmas [simp] = interval_of_def
@@ -287,32 +243,34 @@ declare [[coercion_map interval_map]]
 lemma interval_map_real_add[simp]:
 fixes i1::"float interval"
 shows "interval_map real (i1 + i2) = interval_map real i1 + interval_map real i2"
-by (cases i1, cases i2, simp add: plus_interval_def)
+by (cases i1 rule: interval_exhaust, cases i2 rule: interval_exhaust, simp add: plus_interval_def interval_map_def)
 
 lemma interval_map_real_sub[simp]:
 fixes i1::"float interval"
 shows "interval_map real (i1 - i2) = interval_map real i1 - interval_map real i2"
-by (cases i1, cases i2, simp add: minus_interval_def)
+by (cases i1 rule: interval_exhaust, cases i2 rule: interval_exhaust, simp add: minus_interval_def interval_map_def)
 
 lemma interval_map_real_neg[simp]:
 fixes i::"float interval"
 shows "interval_map real (-i) = - interval_map real i"
-by (cases i, simp add: uminus_interval_def)
+by (cases i rule: interval_exhaust, simp add: uminus_interval_def interval_map_def)
 
 lemma interval_map_real_mul[simp]:
 fixes i1::"float interval"
 shows "interval_map real (i1 * i2) = interval_map real i1 * interval_map real i2"
-by (cases i1, cases i2, simp add: times_interval_def real_of_float_max real_of_float_min)
+by (cases i1 rule: interval_exhaust, cases i2 rule: interval_exhaust, simp add: times_interval_def real_of_float_max real_of_float_min interval_map_def)
 
 lemma interval_map_real_pow[simp]:
 fixes i::"float interval"
 shows "interval_map real (i ^ n) = interval_map real i ^  n"
-by (cases i, induction n, simp_all add: one_interval_def)
+apply(cases i rule: interval_exhaust, induction n)
+using interval_map_real_mul by (auto simp: one_interval_def interval_map_def)
 
-lemma nonempty_interval_map_real[simp]:
-fixes i::"float interval"
-shows "nonempty (interval_map real i) = nonempty i"
-by (induction i, simp_all)
+lemma interval_map_real_Ivl[simp]:
+fixes l::float and u::float
+shows "interval_map real (Ivl l u) = Ivl (real l) (real u)"
+apply(simp add: interval_map_def)
+by (metis interval_exhaust less_eq_float.rep_eq lower_Ivl max.cobounded2 max_def upper_Ivl_a upper_Ivl_b)
 
 (* Operations on intervals are monotone. *)
 lemma set_of_add_mono:
@@ -320,54 +278,26 @@ fixes a :: "'a::ordered_ab_group_add"
 assumes "a \<in> set_of A"
 assumes "b \<in> set_of B"
 shows "a + b \<in> set_of (A + B)"
-proof-
-  obtain la ua where A_def: "A = Ivl la ua"
-    using interval.exhaust by auto
-  obtain lb ub where B_def: "B = Ivl lb ub"
-    using interval.exhaust by auto
-  have a_def: "a \<in> {la..ua}"
-    using assms(1) by (simp add: A_def set_of_def)
-  have b_def: "b \<in> {lb..ub}"
-    using assms(2) by (simp add: B_def set_of_def)
-  show ?thesis 
-    using a_def b_def
-    by (simp add: A_def B_def set_of_def plus_interval_def add_mono)
-qed
+apply(cases A rule: interval_exhaust, cases B rule: interval_exhaust)
+using assms
+by (simp add: set_of_def plus_interval_def add_mono)
 
 lemma set_of_minus_mono:
 fixes a :: "'a::ordered_ab_group_add"
 assumes "a \<in> set_of A"
 assumes "b \<in> set_of B"
 shows "a - b \<in> set_of (A - B)"
-proof-
-  obtain la ua where A_def: "A = Ivl la ua"
-    using interval.exhaust by auto
-  obtain lb ub where B_def: "B = Ivl lb ub"
-    using interval.exhaust by auto
-  have a_def: "a \<in> {la..ua}"
-    using assms(1) by (simp add: A_def set_of_def)
-  have b_def: "b \<in> {lb..ub}"
-    using assms(2) by (simp add: B_def set_of_def)
-  
-  show ?thesis 
-    using a_def b_def
-    by (simp add: A_def B_def minus_interval_def set_of_def diff_mono)
-qed
+apply(cases A rule: interval_exhaust, cases B rule: interval_exhaust)
+using assms
+by (simp add: minus_interval_def set_of_def diff_mono)
 
 lemma set_of_uminus_mono:
 fixes a :: "'a::ordered_ab_group_add"
 assumes "a \<in> set_of A"
 shows "-a \<in> set_of (-A)"
-proof-
-  obtain la ua where A_def: "A = Ivl la ua"
-    using interval.exhaust by auto
-  have a_def: "a \<in> {la..ua}"
-    using assms(1) by (simp add: A_def set_of_def)
-  
-  show ?thesis 
-    using a_def
-    by (simp add: A_def uminus_interval_def set_of_def)
-qed
+apply(cases A rule: interval_exhaust)
+using assms
+by (simp add: uminus_interval_def set_of_def)
 
 lemma set_of_mult_mono:
 fixes a :: "'a::linordered_idom"
@@ -375,14 +305,10 @@ assumes "a \<in> set_of A"
 assumes "b \<in> set_of B"
 shows "a * b \<in> set_of (A * B)"
 proof-
-  obtain la ua where A_def: "A = Ivl la ua"
-    using interval.exhaust by auto
-  obtain lb ub where B_def: "B = Ivl lb ub"
-    using interval.exhaust by auto
-  have a_def: "a \<in> {la..ua}"
-    using assms(1) by (simp add: A_def set_of_def)
-  have b_def: "b \<in> {lb..ub}"
-    using assms(2) by (simp add: B_def set_of_def)
+  obtain la ua where A_def: "A = Ivl la ua" and lea: "la \<le> ua" using interval_exhaust by auto
+  obtain lb ub where B_def: "B = Ivl lb ub" and leb: "lb \<le> ub" using interval_exhaust by auto
+  have a_def: "a \<in> {la..ua}" using assms(1) lea by (simp add: A_def set_of_def)
+  have b_def: "b \<in> {lb..ub}" using assms(2) leb by (simp add: B_def set_of_def)
     
   have ineqs: "la \<le> a" "a \<le> ua" "lb \<le> b" "b \<le> ub"
     using a_def b_def
@@ -399,6 +325,7 @@ proof-
           mult_mono'[OF ineqs'(2) ineqs(3), simplified]
           mult_mono'[OF ineqs(1) ineqs'(4), simplified]
           mult_mono[OF ineqs(2) ineqs(4), simplified]
+          lea leb
     apply(simp add: A_def B_def times_interval_def set_of_def min_le_iff_disj le_max_iff_disj, safe)
     by (smt ineqs(1) ineqs(2) le_less not_le order_trans zero_le_mult_iff)+
 qed
@@ -416,21 +343,18 @@ by (induction n, simp_all add: set_of_mult_mono one_interval_def)
 (* TODO: Clean this proof up! *)
 lemma set_of_add_distrib:
 fixes A :: "'a::linordered_idom interval"
-assumes "nonempty A"
-assumes "nonempty B"
 shows "set_of A + set_of B = set_of (A + B)"
 proof-
-  obtain la ua where A_def: "A = Ivl la ua"
-    using interval.exhaust by auto
-  obtain lb ub where B_def: "B = Ivl lb ub"
-    using interval.exhaust by auto
+  obtain la ua where A_def: "A = Ivl la ua" and lea: "la \<le> ua" using interval_exhaust by auto
+  obtain lb ub where B_def: "B = Ivl lb ub" and leb: "lb \<le> ub" using interval_exhaust by auto
   from assms
   show ?thesis
+    using lea leb
     apply(simp add: A_def B_def plus_interval_def set_plus_def)
     apply(rule)
     apply(rule)
     apply(safe)
-    apply(simp_all add: add_mono)
+    apply(simp_all add: add_mono set_of_def)
     apply(safe)
     proof(goals)
       case (1 x)
@@ -495,60 +419,21 @@ proof-
     qed
 qed
 
-lemma set_of_add_right:
-fixes A :: "'a::linordered_idom interval"
-assumes "nonempty A"
-assumes "nonempty B"
-assumes "set_of A \<subseteq> set_of A'"
-shows "set_of (A + B) \<subseteq> set_of (A' + B)"
-using assms(3)
-by(simp add: set_of_add_distrib[OF assms(1,2), symmetric]
-             set_of_add_distrib[OF nonempty_subset[OF assms(1,3)] assms(2), symmetric] set_plus_mono2)
-
-lemma set_of_add_left:
-fixes A :: "'a::linordered_idom interval"
-assumes "nonempty A"
-assumes "nonempty B"
-assumes "set_of B \<subseteq> set_of B'"
-shows "set_of (A + B) \<subseteq> set_of (A + B')"
-using set_of_add_right[OF assms(2) assms(1) assms(3)]
-by (simp add: add.commute)
-
 lemma set_of_add_cong:
 fixes A :: "'a::linordered_idom interval"
-assumes "nonempty A"
-assumes "nonempty B"
 assumes "set_of A = set_of A'"
 assumes "set_of B = set_of B'"
 shows "set_of (A + B) = set_of (A' + B')"
-unfolding set_of_add_distrib[OF assms(1,2), symmetric] assms(3,4)
-apply(subst set_of_add_distrib)
-using assms(3,4) nonempty_subset[OF assms(2)] nonempty_subset[OF assms(1)]
-by auto
+by (simp add: set_of_add_distrib[symmetric] assms)
 
 lemma set_of_add_inc_left:
 fixes A :: "'a::linordered_idom interval"
-assumes "nonempty A"
 assumes "set_of A \<subseteq> set_of A'"
 shows "set_of (A + B) \<subseteq> set_of (A' + B)"
-proof
-  fix x assume x_def: "x \<in> set_of (A + B)"
-
-  obtain la ua where A_def: "A = Ivl la ua"
-    using interval.exhaust by auto
-  obtain la' ua' where A'_def: "A' = Ivl la' ua'"
-    using interval.exhaust by auto
-  obtain lb ub where B_def: "B = Ivl lb ub"
-    using interval.exhaust by auto
-  
-  from x_def assms
-  show "x \<in> set_of (A' + B)"
-    by (simp add: A_def A'_def B_def plus_interval_def)
-qed
+by (simp add: set_of_add_distrib[symmetric] set_plus_mono2[OF assms])
 
 lemma set_of_add_inc_right:
 fixes A :: "'a::linordered_idom interval"
-assumes "nonempty B"
 assumes "set_of B \<subseteq> set_of B'"
 shows "set_of (A + B) \<subseteq> set_of (A + B')"
 using set_of_add_inc_left[OF assms]
@@ -556,67 +441,39 @@ by (simp add: add.commute)
 
 lemma set_of_add_inc:
 fixes A :: "'a::linordered_idom interval"
-assumes "nonempty A"
-assumes "nonempty B"
 assumes "set_of A \<subseteq> set_of A'"
 assumes "set_of B \<subseteq> set_of B'"
 shows "set_of (A + B) \<subseteq> set_of (A' + B')"
-using set_of_add_inc_left[OF assms(1) assms(3)]
-      set_of_add_inc_right[OF assms(2) assms(4)]
+using set_of_add_inc_left[OF assms(1)] set_of_add_inc_right[OF assms(2)]
 by auto
 
 lemma set_of_neg_inc:
 fixes A :: "'a::linordered_idom interval"
-assumes "nonempty A"
 assumes "set_of A \<subseteq> set_of A'"
 shows "set_of (-A) \<subseteq> set_of (-A')"
-proof-
-  obtain la ua where A_def: "A = Ivl la ua" using interval.exhaust by auto
-  obtain la' ua' where A'_def: "A' = Ivl la' ua'" using interval.exhaust by auto
-  
-  from assms show ?thesis
-    by (simp add: A_def A'_def uminus_interval_def)
-qed
+apply(cases A rule: interval_exhaust, cases A' rule: interval_exhaust)
+using assms by (simp add: uminus_interval_def set_of_def)
 
 lemma set_of_sub_inc_left:
 fixes A :: "'a::linordered_idom interval"
-assumes "nonempty A"
 assumes "set_of A \<subseteq> set_of A'"
 shows "set_of (A - B) \<subseteq> set_of (A' - B)"
-proof-
-  have "set_of (A - B) = set_of (A + (-B))"
-    by (simp add: uminus_interval_def minus_interval_def plus_interval_def)
-  also have "... \<subseteq> set_of (A' + (-B))"
-    using assms by (rule set_of_add_inc_left)
-  also have "... = set_of (A' - B)"
-    by (simp add: uminus_interval_def minus_interval_def plus_interval_def)
-  finally show ?thesis .
-qed
+apply(cases A rule: interval_exhaust, cases B rule: interval_exhaust, cases A' rule: interval_exhaust)
+using assms by (simp add: uminus_interval_def minus_interval_def plus_interval_def set_of_def)
 
 lemma set_of_sub_inc_right:
 fixes A :: "'a::linordered_idom interval"
-assumes "nonempty B"
 assumes "set_of B \<subseteq> set_of B'"
 shows "set_of (A - B) \<subseteq> set_of (A - B')"
-proof-
-  have "set_of (A - B) = set_of (A + (-B))"
-    by (simp add: uminus_interval_def minus_interval_def plus_interval_def)
-  also have "... \<subseteq> set_of (A + (-B'))"
-    using assms by (simp add: set_of_add_inc_right nonempty_neg set_of_neg_inc)
-  also have "... \<subseteq> set_of (A - B')"
-    by (simp add: uminus_interval_def minus_interval_def plus_interval_def)
-  finally show ?thesis .
-qed
+apply(cases A rule: interval_exhaust, cases B rule: interval_exhaust, cases B' rule: interval_exhaust)
+using assms by (simp add: uminus_interval_def minus_interval_def plus_interval_def set_of_def)
 
 lemma set_of_sub_inc:
 fixes A :: "'a::linordered_idom interval"
-assumes "nonempty A"
-assumes "nonempty B"
 assumes "set_of A \<subseteq> set_of A'"
 assumes "set_of B \<subseteq> set_of B'"
 shows "set_of (A - B) \<subseteq> set_of (A' - B')"
-using set_of_sub_inc_left[OF assms(1) assms(3)]
-      set_of_sub_inc_right[OF assms(2) assms(4)]
+using set_of_sub_inc_left[OF assms(1)] set_of_sub_inc_right[OF assms(2)]
 by auto
 
 lemma set_of_distrib_right:
@@ -625,305 +482,47 @@ shows "set_of ((A1 + A2) * B) \<subseteq> set_of (A1 * B + A2 * B)"
 proof
   fix x assume assm: "x \<in> set_of ((A1 + A2) * B)"
   
-  obtain la1 ua1 where A1_def: "A1 = Ivl la1 ua1" using interval.exhaust by auto
-  obtain la2 ua2 where A2_def: "A2 = Ivl la2 ua2" using interval.exhaust by auto
-  obtain lb ub where B_def: "B = Ivl lb ub" using interval.exhaust by auto
+  obtain la1 ua1 where A1_def: "A1 = Ivl la1 ua1" and lea1: "la1 \<le> ua1" using interval_exhaust by auto
+  obtain la2 ua2 where A2_def: "A2 = Ivl la2 ua2" and lea2: "la2 \<le> ua2" using interval_exhaust by auto
+  obtain lb ub where B_def: "B = Ivl lb ub" and leb: "lb \<le> ub" using interval_exhaust by auto
   
   from assm
   have a1: "min (min ((la1 + la2) * lb) ((ua1 + ua2) * lb)) (min ((la1 + la2) * ub) ((ua1 + ua2) * ub)) \<le> x"
   and  a2: "x \<le> max (max ((la1 + la2) * lb) ((ua1 + ua2) * lb)) (max ((la1 + la2) * ub) ((ua1 + ua2) * ub))"
-    by (auto simp: A1_def A2_def B_def times_interval_def plus_interval_def)
+    using lea1 lea2 leb
+    by (auto simp: A1_def A2_def B_def times_interval_def plus_interval_def set_of_def)
     
   show "x \<in> set_of (A1 * B + A2 * B)"
-    apply(simp add: A1_def A2_def B_def times_interval_def plus_interval_def)
+    using lea1 lea2 leb
+    apply(simp add: A1_def A2_def B_def times_interval_def plus_interval_def set_of_def)
     apply(rule conjI[OF order.trans[OF _ a1]  order.trans[OF a2]])
-    apply (smt add_mono distrib_right dual_order.trans min.cobounded1 min_def)
-    apply (smt add_mono distrib_right dual_order.trans max.cobounded2 max_def)
+    apply(smt add_mono distrib_right dual_order.trans min.cobounded1 min_def)
+    apply(subst upper_Ivl_b)
+    apply(simp add: add_mono max.left_commute min_le_iff_disj)
+    apply(smt add_mono distrib_right dual_order.trans max.cobounded2 max_def)
     done
 qed
 
-(* TODO: Clean up this proof. Does this really only hold for fields? *)
+(* TODO: Prove this. I don't need it, but it would be nice to have. *)
 lemma set_of_mult_distrib:
 fixes A :: "'a::linordered_field interval"
-assumes "nonempty A"
-assumes "nonempty B"
 shows "set_of (A * B) = set_of A * set_of B"
-proof-
-  obtain la ua where A_def[simp]: "A = Ivl la ua" using interval.exhaust by auto
-  obtain lb ub where B_def[simp]: "B = Ivl lb ub" using interval.exhaust by auto
-  
-  have min_dist_right_pos[simp]: "\<And>a b c::'a. 0 \<le> c \<Longrightarrow> min (a * c) (b * c) = min a b * c"
-    by (metis le_less min_def mult.commute mult_le_cancel_right mult_right_mono mult_zero_left)
-  have min_dist_right_neg[simp]: "\<And>a b c::'a. c < 0 \<Longrightarrow> min (a * c) (b * c) = max a b * c"
-    by (simp add: max_def min_def)
-  have max_dist_right_pos[simp]: "\<And>a b c::'a. 0 \<le> c \<Longrightarrow> max (a * c) (b * c) = max a b * c"
-    by (metis max.absorb_iff1 max_def mult_right_mono)
-  have max_dist_right_neg[simp]: "\<And>a b c::'a. c < 0 \<Longrightarrow> max (a * c) (b * c) = min a b * c"
-    by (simp add: max_def min_def)
-  have min_dist_left_pos[simp]: "\<And>a b c::'a. 0 \<le> c \<Longrightarrow> min (c * a) (c * b) = c * min a b"
-    by (metis le_less min_def mult.commute mult_le_cancel_right mult_right_mono mult_zero_left)
-  have min_dist_left_neg[simp]: "\<And>a b c::'a. c < 0 \<Longrightarrow> min (c * a) (c * b) = c * max a b "
-    by (simp add: max_def min_def)
-  have max_dist_left_pos[simp]: "\<And>a b c::'a. 0 \<le> c \<Longrightarrow> max (c * a) (c * b) = c * max a b"
-    by (metis max.absorb_iff1 max_def mult_left_mono)
-  have max_dist_left_neg[simp]: "\<And>a b c::'a. c < 0 \<Longrightarrow> max (c * a) (c * b) = c * min a b"
-    by (simp add: max_def min_def)
-  
-  have "la \<le> ua" "lb \<le> ub" using assms by auto
-  hence min_la_ua[simp]: "min la ua = la"
-  and   max_la_ua[simp]: "max la ua = ua"
-  and   min_la_ua[simp]: "min lb ub = lb"
-  and   max_la_ua[simp]: "max lb ub = ub" by auto
-  
-  let ?C="set_of (A * B) = {la*lb..ua*ub} \<or> set_of (A * B) = {ua*lb..la*lb} \<or>
-          set_of (A * B) = {ua*lb..la*ub} \<or> set_of (A * B) = {ua*lb..ua*ub} \<or>
-          set_of (A * B) = {la*ub..la*lb} \<or> set_of (A * B) = {la*ub..ua*lb} \<or>
-          set_of (A * B) = {la*ub..ua*ub} \<or> set_of (A * B) = {ua*ub..la*lb}"
-  {
-    assume "0 \<le> la" "0 \<le> ua" "0 \<le> lb" "0 \<le> ub"
-    hence "set_of (A * B) = {la*lb..ua*ub}"
-      using `la \<le> ua` `lb \<le> ub`
-      by (simp add: times_interval_def)
-    hence ?C by linarith
-  } moreover {
-    assume "0 \<le> la" "0 \<le> ua" "lb < 0" "0 \<le> ub"
-    hence "set_of (A * B) = {ua*lb..la*lb} \<or> set_of (A * B) = {ua*lb..ua*ub} \<or> set_of (A * B) = {la*ub..la*lb} \<or> set_of (A * B) = {la*ub..ua*ub}"
-      by (simp add: times_interval_def, simp add: max_def min_def)
-    hence ?C by linarith
-  } moreover {
-    assume "0 \<le> la" "0 \<le> ua" "lb < 0" "ub < 0"
-    hence "set_of (A * B) = {ua*lb..la*ub}" by (simp add: times_interval_def)
-    hence ?C by linarith
-  } moreover {
-    assume "la < 0" "0 \<le> ua" "0 \<le> lb" "0 \<le> ub"
-    hence "set_of (A * B) = {la*ub..ua*ub}" by (simp add: times_interval_def)
-    hence ?C by linarith
-  } moreover {
-    assume "la < 0" "0 \<le> ua" "lb < 0" "0 \<le> ub"
-    hence "set_of (A * B) = {ua*lb..la*lb} \<or> set_of (A * B) = {ua*lb..ua*ub} \<or> set_of (A * B) = {la*ub..la*lb} \<or> set_of (A * B) = {la*ub..ua*ub} \<or> set_of (A * B) = {ua*ub..la*lb}"
-      by (simp add: times_interval_def min_def max_def)
-    hence ?C by linarith
-  } moreover {
-    assume "la < 0" "0 \<le> ua" "lb < 0" "ub < 0"
-    hence "set_of (A * B) = {ua*lb..la*lb}" by (simp add: times_interval_def)
-    hence ?C by linarith
-  } moreover {
-    assume "la < 0" "ua < 0" "0 \<le> lb" "0 \<le> ub"
-    hence "set_of (A * B) = {la*ub..ua*lb}" by (simp add: times_interval_def)
-    hence ?C by linarith
-  } moreover {
-    assume "la < 0" "ua < 0" "lb < 0" "0 \<le> ub"
-    hence "set_of (A * B) = {ua*lb..la*lb} \<or> set_of (A * B) = {ua*lb..ua*ub} \<or>
-           set_of (A * B) = {la*ub..la*lb} \<or> set_of (A * B) = {la*ub..ua*ub} \<or>
-           set_of (A * B) = {ua*ub..la*lb}" using `la \<le> ua`
-      by (simp add: times_interval_def min_def max_def)
-    hence ?C by linarith
-  } moreover {
-    assume "la < 0" "ua < 0" "lb < 0" "ub < 0"
-    hence "set_of (A * B) = {ua*ub..la*lb}" by (simp add: times_interval_def)
-    hence ?C by linarith
-  } moreover {
-    assume "la < 0" "ua < 0" "0 \<le> lb" "ub < 0"
-    hence ?C using `lb \<le> ub` by simp
-  } moreover {
-    assume "0 \<le> la" "ua < 0" "0 \<le> lb" "0 \<le> ub"
-    hence ?C using `la \<le> ua` by simp
-  } moreover {
-    assume "0 \<le> la" "0 \<le> ua" "0 \<le> lb" "ub < 0"
-    hence ?C using `lb \<le> ub` by simp
-  } moreover {
-    assume "0 \<le> la" "ua < 0" "0 \<le> lb" "ub < 0"
-    hence ?C using `lb \<le> ub` by simp
-  } moreover {
-    assume "0 \<le> la" "ua < 0" "lb < 0" "0 \<le> ub"
-    hence ?C using `la \<le> ua` by simp
-  } moreover {
-    assume "0 \<le> la" "ua < 0" "lb < 0" "ub < 0"
-    hence ?C using `la \<le> ua` by simp
-  } moreover {
-    assume "la < 0" "0 \<le> ua" "0 \<le> lb" "ub < 0"
-    hence ?C using `lb \<le> ub` by simp
-  } ultimately have ?C
-    unfolding not_le[symmetric]
-    by metis
-  
-  {
-    fix x assume "x \<in> set_of A * set_of B"
-    from set_times_elim[OF this] obtain a b where x_decomp: "x = a * b" "a \<in> set_of A" "b \<in> set_of B"
-      by auto
-      
-    from x_decomp(2,3) have "x \<in> set_of (A * B)"
-      apply(simp add: times_interval_def x_decomp(1))
-      apply(cases "0 \<le> lb", simp)
-      apply(cases "0 \<le> ub", simp)
-      apply(cases "0 \<le> la", simp)
-      apply(safe)[1]
-      apply(simp_all add: mult_mono)[2]
-      apply(cases "0 \<le> ua", simp)
-      apply(safe)[1]
-      apply(smt le_less max_def max_dist_left_neg max_dist_right_pos min_def not_le order.trans)
-      apply(simp add: mult_mono)
-      apply(simp)
-      apply(safe)[1]
-      apply(smt dual_order.trans linear max_def min.assoc min_def min_dist_right_neg min_dist_right_pos mult.commute mult_le_0_iff not_le zero_le_mult_iff)
-      apply(smt le_less max_def max_dist_left_pos max_dist_right_neg min_def mult.commute not_le order.trans)
-      apply(simp)
-      apply(simp)
-      apply(cases "0 \<le> ub", simp)
-      apply(cases "0 \<le> la")
-      apply(simp add: min_def)
-      apply(safe)[1]
-      apply(smt linear max_def min_def min_dist_left_pos min_dist_right_neg not_less order.trans)
-      apply(smt max.coboundedI2 mult.commute mult_mono order_trans)
-      apply(metis (mono_tags, lifting) dual_order.trans linear mult_le_0_iff zero_le_mult_iff)
-      apply(simp add: max_def)
-      apply(smt mult.commute mult_mono order_trans)
-      apply(cases "0 \<le> ua")
-      apply(safe)[1]
-      apply(simp add: min_def)
-      apply(smt le_less max_def min_def min_dist_left_pos min_dist_right_neg min_le_iff_disj mult.commute mult_le_0_iff)
-      apply(simp add: max_def)
-      apply(smt linear max.left_commute max_def min_dist_right_neg min_le_iff_disj mult.commute mult_mono not_le)
-      apply(safe)[1]
-      apply(simp add: min_def)
-      apply(safe)[1]
-      apply(metis dual_order.trans linear mult_le_0_iff)
-      apply(smt linear mult_minus_left mult_mono neg_le_iff_le order_trans zero_le_mult_iff)
-      apply(simp add: max_def)
-      apply(safe)[1]
-      apply(metis dual_order.trans linear mult_le_0_iff)
-      apply(smt eq_iff max.coboundedI2 max.orderE max_dist_right_neg min_def mult.commute not_less)
-      apply(simp)
-      apply(cases "0 \<le> ua", simp)
-      apply(cases "0 \<le> la", simp)
-      apply(safe)[1]
-      apply(smt eq_iff le_less max.coboundedI2 max.orderE min.assoc min.commute min_def min_dist_left_pos min_dist_right_neg)
-      apply(smt dual_order.trans leD leI max_dist_left_neg max_less_iff_conj min_absorb2 mult.commute mult_left_mono)
-      apply(simp)
-      apply(safe)[1]
-      apply(smt leD leI max_def max_dist_left_neg max_less_iff_conj min_absorb2 mult.commute mult_left_mono)
-      apply(smt eq_refl max.left_commute max_def max_dist_left_neg max_dist_right_neg max_less_iff_conj min.orderE not_leE)
-      apply(simp)
-      by (smt eq_iff leI max.orderE max_less_iff_conj min_dist_right_neg min_le_iff_disj mult.commute)
-  }
-  moreover
-  {
-    have mult_inverse: "\<And>x a b c::'a. a * c \<le> x \<Longrightarrow> x \<le> b * c \<Longrightarrow> \<exists>d. x = d * c \<and> (d \<in> {a..b} \<or> d \<in> {b..a})"
-    proof(goals)
-      case (1 x a b c)
-      {
-        assume "c = 0"
-        hence "?case" using 1 by auto
-      } moreover {
-        assume "0 < c"
-        hence "a \<le> x / c" "x / c \<le> b" "x = (x/c) * c"
-          using 1 by (auto simp: pos_le_divide_eq pos_divide_le_eq)
-        hence "?case" by fastforce
-      } moreover {
-        assume "c < 0"
-        hence "x / c \<le> a" "b \<le> x / c" "x = (x/c) * c"
-          using 1 by (auto simp: neg_le_divide_eq neg_divide_le_eq)
-        hence "?case" by fastforce
-      } ultimately show ?case by fastforce
-    qed
-    
-    fix x assume "x \<in> set_of (A * B)"
-    hence"x \<in> set_of A * set_of B"
-      using `?C`
-      apply(simp add: times_interval_def set_times_def)
-      apply(safe)
-      proof(goals)
-        case 1 {
-          assume x_le: "x \<le> ua * lb"
-          have le_x: "la * lb \<le> x" using 1(1,3) by simp
-          from mult_inverse[OF le_x x_le] `la \<le> ua` `lb \<le> ub`
-          have ?case by fastforce
-        } moreover {
-          assume less_x: "ua * lb < x"
-          have x_le: "x \<le> ub*ua" using 1(2,4) by (simp add: mult.commute)
-          from mult_inverse[OF  less_imp_le[OF less_x, unfolded mult.commute] x_le] `la \<le> ua` `lb \<le> ub`
-          have ?case by (subst mult.commute, fastforce)
-        } ultimately show ?case by linarith
-      next
-        case 2
-        hence "ua * lb \<le> x" "x \<le> la * lb" by auto
-        from mult_inverse[OF this] `la \<le> ua` `lb \<le> ub`
-        show ?case by fastforce
-      next
-        case 3 {
-          assume x_le: "x \<le> ub * ua"
-          have le_x: "lb * ua \<le> x" using 3(1,3) by (simp add: mult.commute)
-          from mult_inverse[OF le_x x_le] `la \<le> ua` `lb \<le> ub`
-          have ?case by (subst mult.commute, fastforce)
-        } moreover {
-          assume less_x: "ub * ua < x"
-          have x_le: "x \<le> la * ub" using 3(2,4) by (simp add: mult.commute)
-          from mult_inverse[OF  less_imp_le[OF less_x, unfolded mult.commute] x_le] `la \<le> ua` `lb \<le> ub`
-          have ?case by fastforce
-        } ultimately show ?case by linarith
-      next
-        case 4
-        hence "lb * ua \<le> x" "x \<le> ub * ua" by (auto simp: mult.commute)
-        from mult_inverse[OF this] `la \<le> ua` `lb \<le> ub`
-        show ?case by (subst mult.commute, fastforce)
-      next
-        case 5
-        hence "ub * la \<le> x" "x \<le> lb * la" by (auto simp: mult.commute)
-        from mult_inverse[OF this] `la \<le> ua` `lb \<le> ub`
-        show ?case by (subst mult.commute, fastforce)
-      next
-        case 6 {
-          assume x_le: "x \<le> ua * ub"
-          have le_x: "la * ub \<le> x" using 6(1,3) by simp
-          from mult_inverse[OF le_x x_le] `la \<le> ua` `lb \<le> ub`
-          have ?case by fastforce
-        } moreover {
-          assume "ua * ub < x" hence le_x: "ub * ua \<le> x" by (simp add: mult.commute)
-          have x_le: "x \<le> lb * ua" using 6(2,4) by (simp add: mult.commute)
-          from mult_inverse[OF le_x x_le] `la \<le> ua` `lb \<le> ub`
-          have ?case by (subst mult.commute, fastforce)
-        } ultimately show ?case by linarith
-      next
-        case 7
-        hence "la * ub \<le> x" "x \<le> ua * ub" by auto
-        from mult_inverse[OF this] `la \<le> ua` `lb \<le> ub`
-        show ?case by fastforce
-      next
-        case 8 {
-          assume x_le: "x \<le> la * ub"
-          have le_x: "ua * ub \<le> x" using 8(1,3) by simp
-          from mult_inverse[OF le_x x_le] `la \<le> ua` `lb \<le> ub`
-          have ?case by fastforce
-        } moreover {
-          assume "la * ub < x" hence le_x: "ub * la \<le> x" by (simp add: mult.commute)
-          have x_le: "x \<le> lb * la" using 8(2,4) by (simp add: mult.commute)
-          from mult_inverse[OF le_x x_le] `la \<le> ua` `lb \<le> ub`
-          have ?case by (subst mult.commute, fastforce)
-        } ultimately show ?case by linarith
-      qed
-  }
-  ultimately show ?thesis
-    by auto
-qed
+oops
 
 lemma set_of_mul_inc_left:
 fixes A :: "'a::linordered_idom interval"
-assumes "nonempty A"
 assumes "set_of A \<subseteq> set_of A'"
 shows "set_of (A * B) \<subseteq> set_of (A' * B)"
 proof
   fix x assume x_def: "x \<in> set_of (A * B)"
 
-  obtain la ua where A_def: "A = Ivl la ua"
-    using interval.exhaust by auto
-  obtain la' ua' where A'_def: "A' = Ivl la' ua'"
-    using interval.exhaust by auto
-  obtain lb ub where B_def: "B = Ivl lb ub"
-    using interval.exhaust by auto
+  obtain la ua where A_def: "A = Ivl la ua" and lea: "la \<le> ua" using interval_exhaust by auto
+  obtain la' ua' where A'_def: "A' = Ivl la' ua'" and lea': "la' \<le> ua'" using interval_exhaust by auto
+  obtain lb ub where B_def: "B = Ivl lb ub" and leb: "lb \<le> ub" using interval_exhaust by auto
   
-  from x_def assms
+  from x_def assms lea lea' leb
   show "x \<in> set_of (A' * B)"
-    apply(simp add: A_def A'_def B_def times_interval_def)
+    apply(simp add: A_def A'_def B_def times_interval_def set_of_def)
     apply(safe)
     apply(smt min.absorb_iff2 min.coboundedI2 min_def mult_le_cancel_right)
     by (smt eq_iff le_max_iff_disj max_def mult_le_cancel_right)
@@ -931,7 +530,6 @@ qed
 
 lemma set_of_mul_inc_right:
 fixes A :: "'a::linordered_idom interval"
-assumes "nonempty B"
 assumes "set_of B \<subseteq> set_of B'"
 shows "set_of (A * B) \<subseteq> set_of (A * B')"
 unfolding interval_mul_commute[of A]
@@ -939,21 +537,18 @@ by (rule set_of_mul_inc_left[OF assms])
 
 lemma set_of_mul_inc:
 fixes A :: "'a::linordered_idom interval"
-assumes "nonempty A"
-assumes "nonempty B"
 assumes "set_of A \<subseteq> set_of A'"
 assumes "set_of B \<subseteq> set_of B'"
 shows "set_of (A * B) \<subseteq> set_of (A' * B')" 
-using set_of_mul_inc_right[OF assms(2,4)] set_of_mul_inc_left[OF assms(1,3)]
+using set_of_mul_inc_right[OF assms(2)] set_of_mul_inc_left[OF assms(1)]
 by auto
 
 lemma set_of_pow_inc:
 fixes A :: "'a::linordered_idom interval"
-assumes "nonempty A"
 assumes "set_of A \<subseteq> set_of A'"
 shows "set_of (A^n) \<subseteq> set_of (A'^n)"
 using assms
-by (induction n, simp_all add: nonempty_pow set_of_mul_inc)
+by (induction n, simp_all add: set_of_mul_inc)
 
 lemma set_of_distrib_left:
 fixes A1 :: "'a::linordered_idom interval"
@@ -963,22 +558,14 @@ by (rule set_of_distrib_right[unfolded interval_mul_commute])
 
 lemma set_of_distrib_right_left:
 fixes A1 :: "'a::linordered_idom interval"
-assumes "nonempty A1"
-assumes "nonempty A2"
-assumes "nonempty B1"
-assumes "nonempty B2"
 shows "set_of ((A1 + A2) * (B1 + B2)) \<subseteq> set_of (A1 * B1 + A1 * B2 + A2 * B1 + A2 * B2)"
 proof-
   have "set_of ((A1 + A2) * (B1 + B2)) \<subseteq> set_of (A1 * (B1 + B2) + A2 * (B1 + B2))"
     by (rule set_of_distrib_right)
   also have "... \<subseteq> set_of ((A1 * B1 + A1 * B2) + A2 * (B1 + B2))"
-    apply(rule set_of_add_inc_left)
-    apply(simp add: assms(1) assms(3) assms(4) nonempty_add)
-    by (rule set_of_distrib_left)
+    by (rule set_of_add_inc_left[OF set_of_distrib_left])
   also have "... \<subseteq> set_of ((A1 * B1 + A1 * B2) + (A2 * B1 + A2 * B2))"
-    apply(rule set_of_add_inc_right)
-    apply(simp add: assms(2) assms(3) assms(4) nonempty_add)
-    by (rule set_of_distrib_left)
+    by (rule set_of_add_inc_right[OF set_of_distrib_left])
   finally show ?thesis
     by (simp add: add.assoc)
 qed
@@ -987,12 +574,15 @@ lemma set_of_mul_contains_zero:
 fixes A :: "'a::linordered_idom interval"
 assumes "0 \<in> set_of A \<or> 0 \<in> set_of B"
 shows "0 \<in> set_of (A * B)"
-proof-
-  obtain la ua where A_def: "A = Ivl la ua" using interval.exhaust by auto
-  obtain lb ub where B_def: "B = Ivl lb ub" using interval.exhaust by auto
-  from assms show ?thesis
-    apply(simp add: A_def B_def times_interval_def)
-    by (metis (full_types) le_max_iff_disj linear min.coboundedI1 min.coboundedI2 mult_le_0_iff mult_nonneg_nonneg mult_nonpos_nonpos)
-qed
+using assms
+apply(cases A rule: interval_exhaust, cases B rule: interval_exhaust)
+apply(simp add: times_interval_def set_of_def)
+apply(safe)
+apply(metis (no_types, hide_lams) eq_iff min_le_iff_disj mult_zero_left mult_zero_right zero_le_mult_iff)
+apply(metis le_max_iff_disj mult_zero_right order_refl zero_le_mult_iff)
+apply(metis linear min.coboundedI1 min.coboundedI2 mult_nonneg_nonpos mult_nonpos_nonneg)
+apply(metis linear max.coboundedI1 max.coboundedI2 mult_nonneg_nonneg mult_nonpos_nonpos)
+done
+
 
 end

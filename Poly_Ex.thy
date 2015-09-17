@@ -110,21 +110,13 @@ assumes "num_params p \<le> length xs"
 shows "Ipoly (map (interval_map real) xs) (poly_map (interval_map real) p) = interval_map real (Ipoly xs p)"
 using assms by (induction p, simp_all)
 
+
 (* TODO: This lemma is a mess and similar to Ipoly_real_float_interval_eqiv. *)
 lemma Ipoly_real_float_interval_eqiv':
 fixes p::"float poly" and xs::"float interval list"
 assumes "num_params p \<le> length xs"
 shows "Ipoly (map (interval_map real) xs) (poly_map interval_of (poly_map real p)) = interval_map real (Ipoly xs (poly_map interval_of p))"
 using assms by (induction p, simp_all)
-
-lemma nonempty_Ipoly:
-fixes A :: "'a::linordered_idom interval list"
-fixes p :: "'a poly"
-assumes "all_nonempty I"
-assumes "num_params p \<le> length I"
-shows "nonempty (Ipoly I (poly_map interval_of p))"
-using assms
-by (induction p, simp_all add: nonempty_add nonempty_sub nonempty_neg nonempty_pow)
 
 (* Evaluating an "'a poly" with "'a interval" arguments is monotone. *)
 lemma Ipoly_interval_args_mono:
@@ -143,34 +135,10 @@ fixes p::"'a::linordered_idom poly"
 and   I::"'a interval list" and J::"'a interval list"
 assumes "num_params p \<le> length I"
 assumes "I all_subset J"
-assumes "all_nonempty I"
 shows "set_of (Ipoly I (poly_map interval_of p)) \<subseteq> set_of (Ipoly J (poly_map interval_of p))"
-proof-
-  have "?thesis \<and> nonempty (Ipoly I (poly_map interval_of p))"
-  using assms(1)
-  apply(induction p)
-  using assms(2,3)
-  apply(simp_all)[2]
-  proof-
-    case (Add pl pr)
-    show ?case using Add by (simp add: set_of_add_inc nonempty_add)
-  next
-    case (Sub pl pr)
-    show ?case using Sub by (simp add: set_of_sub_inc nonempty_sub)
-  next
-    case (Mul pl pr)
-    show ?case using Mul by (simp add: set_of_mul_inc)
-  next
-    case (Neg p)
-    show ?case using Neg by (simp add: set_of_neg_inc nonempty_neg)
-  next
-    case (Pw p n)
-    show ?case using Pw by (simp add: set_of_pow_inc nonempty_pow)
-  next
-    case (CN pl n pr)
-    show ?case using CN assms(2,3) by (simp add: nonempty_add set_of_add_inc set_of_mul_inc)
-  qed
-  thus ?thesis by simp
-qed
+using assms(1)
+apply(induction p)
+using assms(2)
+by (simp_all add: set_of_add_inc set_of_sub_inc set_of_mul_inc set_of_neg_inc set_of_pow_inc)
 
 end
