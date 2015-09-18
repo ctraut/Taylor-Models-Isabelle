@@ -69,6 +69,17 @@ lemma upper_refl[simp]:
 shows "upper (Ivl a a) = a"
 by (simp add: Ivl.rep_eq max_def upper.rep_eq)
 
+lemma upper_Ivl_upper_lower[simp]:
+shows "upper (Ivl (lower I) (upper I)) = upper I"
+using lower_le_upper upper_Ivl_b
+by auto
+
+lemma upper_Ivl_upper_lower_real[simp]:
+fixes I::"float interval"
+shows "upper (Ivl (real (lower I)) (real (upper I))) = real (upper I)"
+using lower_le_upper less_eq_float.rep_eq upper_Ivl_b
+by blast
+
 lemma interval_exhaust:
 obtains l u
 where "(i::'a::order interval) = Ivl l u"

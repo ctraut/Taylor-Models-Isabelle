@@ -164,10 +164,7 @@ assumes "valid_tm J f t"
 shows "valid_tm I f t"
 proof-
   from assms(1) have "(map (interval_map real) I) all_subset (map (interval_map real) J)"
-    apply(simp add: set_of_def interval_map_def)
-    apply(safe)
-    apply(metis less_eq_float.rep_eq lower_le_upper)
-    by (metis less_eq_float.rep_eq lower_le_upper upper_Ivl_b)
+    by (simp add: set_of_def interval_map_def)
   from all_subsetD[OF this] assms(2)
   show ?thesis 
     apply(cases t, simp)
@@ -753,6 +750,12 @@ where "eval_poly_at_tm (poly.C c) t I a = tm_const c"
 fun tm_comp :: "taylor_model \<Rightarrow> taylor_model \<Rightarrow> float interval list \<Rightarrow> float list \<Rightarrow> taylor_model"
 where "tm_comp (TaylorModel p e) t I a = tm_inc_error (eval_poly_at_tm p t I a) e"
 
+(* tm_abs is implemented very naively, because I don't expect it to be very useful.*)
+fun tm_abs :: "taylor_model \<Rightarrow> float interval list \<Rightarrow> float list \<Rightarrow> taylor_model"
+where "tm_abs t I a = (
+  let bound=compute_bound_tm t I a; abs_bound=Ivl (0::float) (max (abs (lower bound)) (abs (upper bound)))
+  in TaylorModel (poly.C (mid abs_bound)) (centered abs_bound))"
+
 (* Validity of is preserved under taylor model arithmetic. *)
 lemma tm_neg_valid:
 assumes "valid_tm I f t"
@@ -887,7 +890,7 @@ apply(drule tm_mul_valid[OF assms(1) _ assms(2)])
 by (simp add: func_times)
         
 lemma tm_comp_valid:
-(* TODO: Can I rewrite this and make this simpler? *)
+(* TODO: Can I rewrite this assumption and make this simpler? *)
 assumes gI_def: "\<And>x. length x = length I \<Longrightarrow> (\<forall>n<length I. x!n \<in> set_of (I!n)) \<Longrightarrow> g x \<in> set_of gI"
 assumes t1_def: "valid_tm [gI] (\<lambda>x. f (x ! 0)) t1"
 assumes t2_def: "valid_tm I g t2"
@@ -959,6 +962,29 @@ proof-
     qed
 qed
 
+lemma tm_abs_valid:
+assumes "a all_in I"
+assumes "valid_tm I f t"
+shows "valid_tm I (abs o f) (tm_abs t I a)"
+proof-
+  obtain p e where t_def[simp]: "t = TaylorModel p e" using taylor_model.exhaust by auto
+  def bound\<equiv>"compute_bound_tm (TaylorModel p e) I a"
+  def abs_bound\<equiv>"Ivl 0 (max \<bar>lower bound\<bar> \<bar>upper bound\<bar>)"
+  have tm_abs_decomp: "tm_abs t I a =  TaylorModel (poly.C (mid abs_bound)) (centered abs_bound)"
+    by (simp add: bound_def abs_bound_def Let_def)
+  have f_valid: "(\<And>x. x all_in map (interval_map real) I \<Longrightarrow> f x - Ipoly x (poly_map real p) \<in> set_of (interval_map real e))"
+    using assms(2) by simp
+  show ?thesis
+    apply(rule valid_tmI[OF tm_abs_decomp])
+    apply(simp)
+    proof(goals)
+      case (1 x)
+      from f_valid[OF this] compute_bound_tm_correct[OF assms(2) this assms(1), unfolded t_def bound_def[symmetric]]
+      show ?case
+        using abs_bound_def real_of_float_max  
+        by (auto simp: set_of_def interval_map_def minus_interval_def)
+    qed
+qed
 
 subsection \<open>Computing taylor models for multivariate expressions\<close>
 
@@ -1000,7 +1026,7 @@ where "compute_tm _ _ I _ (Num c) = Some (tm_const c)"
     | "compute_tm prec n I a (Ln f) = compute_tm_by_comp prec n I a (Ln (Var 0)) (compute_tm prec n I a f) (\<lambda>x. 0 < lower x)"
     | "compute_tm prec n I a (Sqrt f) = compute_tm_by_comp prec n I a (Sqrt (Var 0)) (compute_tm prec n I a f) (\<lambda>x. 0 < lower x)"
     | "compute_tm prec n I a Pi = Some (tm_pi prec)"
-    | "compute_tm prec n I a (Abs f) = None"
+    | "compute_tm prec n I a (Abs f) = map_option (\<lambda>t. tm_abs t I a) (compute_tm prec n I a f)"
     | "compute_tm prec n I a (Min l r) = None"
     | "compute_tm prec n I a (Max l r) = None"
 
@@ -1104,8 +1130,7 @@ next
   have "\<And>x. x \<in> set_of (interval_map real (compute_bound_tm tf I a)) \<Longrightarrow>
           0 < lower (compute_bound_tm tf I a) \<or> upper (compute_bound_tm tf I a) < 0 \<Longrightarrow>
           isDERIV 0 (Inverse (Var 0)) [x]"
-    apply(simp add: set_of_def interval_map_def, safe, simp_all)
-    by (metis less_eq_float.rep_eq less_le_not_le lower_le_upper upper_Ivl_b)
+    by (simp add: set_of_def interval_map_def, safe, simp_all)
   thus ?case
     using compute_tm_by_comp_valid[OF `0 < n` `a all_in I` Inverse(1)[OF Inverse(2)[simplified] tf_def] Inverse(3)[unfolded compute_tm.simps tf_def[symmetric]]]
     by (cases t, simp)
@@ -1158,6 +1183,15 @@ next
   show ?case
     unfolding `t = tm_pi prec`
     by (rule tm_pi_valid)
+next
+  case (Abs f t)
+  from Abs(3) obtain tf where tf_def: "Some tf = compute_tm prec n I a f"
+                        and  t_def: "t = tm_abs tf I a"
+    by (metis (no_types, lifting) compute_tm.simps(14) map_option_eq_Some)
+  from tm_abs_valid[OF `a all_in I` Abs(1)[OF Abs(2)[simplified] tf_def]]
+  show ?case
+     unfolding t_def interpret_floatarith.simps(9) comp_def
+     by assumption
 qed (simp_all add: valid_tm_def)
 
 (* Compute some taylor models. *)
@@ -1186,7 +1220,6 @@ assumes "Some B = compute_ivl_bound prec n I f"
 assumes "x all_in I"
 shows "interpret_floatarith f x \<in> set_of B"
 proof-
-  (* Since we have a bound B, there must have been a taylor model used to compute it. *)
   from assms(3) obtain t where B_def: "B = compute_bound_tm t I (map mid I)" 
                            and t_def: "Some t = compute_tm prec n I (map mid I) f"
     by (simp, metis (mono_tags, lifting) option.case_eq_if option.collapse option.distinct(1) option.inject)
