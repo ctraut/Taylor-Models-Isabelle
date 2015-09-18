@@ -254,6 +254,9 @@ where "tm_const c = TaylorModel (poly.C c) (Ivl 0 0)"
 fun tm_id :: "nat \<Rightarrow> taylor_model"
 where "tm_id n = TaylorModel (poly.Bound n) (Ivl 0 0)"
 
+definition tm_pi :: "taylor_model"
+where "tm_pi = (let pi_ivl=the (compute_bound Pi []) in TaylorModel (poly.C (mid pi_ivl)) (centered pi_ivl))"
+
 lemma tm_const_valid:
 shows "valid_tm I (interpret_floatarith (Num c)) (tm_const c)"
 by simp
@@ -262,6 +265,23 @@ lemma tm_id_valid:
 assumes "n < length I"
 shows "valid_tm I (interpret_floatarith (Var n)) (tm_id n)"
 using assms by simp
+
+lemma tm_pi_valid:
+shows "valid_tm I (interpret_floatarith Pi) tm_pi"
+proof-
+  have "\<And>prec. real (lb_pi prec) \<le> real (ub_pi prec)"
+    using iffD1[OF atLeastAtMost_iff, OF pi_boundaries]
+    using order_trans by auto
+  then obtain ivl_pi where ivl_pi_def: "Some ivl_pi = compute_bound Pi []"
+    by (simp add: approx.simps)
+  show ?thesis
+    apply(rule valid_tmI)
+    apply(simp add: tm_pi_def Let_def del: compute_bound.simps)
+    apply(simp)
+    unfolding ivl_pi_def[symmetric]
+    using compute_bound_correct[of "[]" "[]", OF _ ivl_pi_def]
+    by (simp, simp add: minus_interval_def set_of_def)
+qed
 
 
 subsubsection \<open>Automatic derivation of floatarith expressions\<close>
@@ -979,8 +999,13 @@ where "compute_tm _ I _ (Num c) = Some (tm_const c)"
     | "compute_tm n I a (Cos f) = compute_tm_by_comp n I a (Cos (Var 0)) (compute_tm n I a f) (\<lambda>x. True)"
     | "compute_tm n I a (Arctan f) = compute_tm_by_comp n I a (Arctan (Var 0)) (compute_tm n I a f) (\<lambda>x. True)"
     | "compute_tm n I a (Exp f) = compute_tm_by_comp n I a (Exp (Var 0)) (compute_tm n I a f) (\<lambda>x. True)"
-    | "compute_tm _ _ _ _ = None"
-  
+    | "compute_tm n I a (Ln f) = compute_tm_by_comp n I a (Ln (Var 0)) (compute_tm n I a f) (\<lambda>x. 0 < lower x)"
+    | "compute_tm n I a (Sqrt f) = compute_tm_by_comp n I a (Sqrt (Var 0)) (compute_tm n I a f) (\<lambda>x. 0 < lower x)"
+    | "compute_tm n I a Pi = Some tm_pi"
+    | "compute_tm n I a (Abs f) = None"
+    | "compute_tm n I a (Min l r) = None"
+    | "compute_tm n I a (Max l r) = None"
+
 lemma compute_tm_by_comp_valid:
 assumes "0 < n"
 assumes "a all_in I"
@@ -1107,8 +1132,35 @@ next
   show ?case
     using compute_tm_by_comp_valid[OF `0 < n` `a all_in I` Exp(1)[OF Exp(2)[simplified] tf_def] Exp(3)[unfolded compute_tm.simps tf_def[symmetric]]]
     by (cases t, simp)
+next
+  case (Ln f t)
+  from Ln(3) obtain tf where tf_def: "Some tf = compute_tm n I a f"
+    by (simp, metis (no_types, lifting) option.case_eq_if option.collapse)
+  have "\<And>x. x \<in> set_of (interval_map real (compute_bound_tm tf I a)) \<Longrightarrow>
+          0 < lower (compute_bound_tm tf I a) \<Longrightarrow>
+          isDERIV 0 (Ln (Var 0)) [x]"
+    by (simp add: set_of_def interval_map_def)
+  thus ?case
+    using compute_tm_by_comp_valid[OF `0 < n` `a all_in I` Ln(1)[OF Ln(2)[simplified] tf_def] Ln(3)[unfolded compute_tm.simps tf_def[symmetric]]]
+    by (cases t, simp)
+next
+  case (Sqrt f t)
+  from Sqrt(3) obtain tf where tf_def: "Some tf = compute_tm n I a f"
+    by (simp, metis (no_types, lifting) option.case_eq_if option.collapse)
+  have "\<And>x. x \<in> set_of (interval_map real (compute_bound_tm tf I a)) \<Longrightarrow>
+          0 < lower (compute_bound_tm tf I a) \<Longrightarrow>
+          isDERIV 0 (Sqrt (Var 0)) [x]"
+    by (simp add: set_of_def interval_map_def)
+  thus ?case
+    using compute_tm_by_comp_valid[OF `0 < n` `a all_in I` Sqrt(1)[OF Sqrt(2)[simplified] tf_def] Sqrt(3)[unfolded compute_tm.simps tf_def[symmetric]]]
+    by (cases t, simp)
+next
+  case (Pi t)
+  hence "t = tm_pi" by simp
+  show ?case
+    unfolding `t = tm_pi`
+    by (rule tm_pi_valid)
 qed (simp_all add: valid_tm_def)
-
 
 (* Compute some taylor models. *)
 value "the (compute_tm 7 [Ivl 0 2] [1] (Num 2))"
