@@ -112,6 +112,13 @@ proof-
     by (simp add: i_def set_of_def mid_def)
 qed
 
+lemma all_subsetD:
+assumes "I all_subset J"
+assumes "x all_in I"
+shows "x all_in J"
+using assms
+by (auto, auto)
+
 (* Arithmetic on intervals. *)
 instantiation "interval" :: ("{order,plus}") plus
 begin

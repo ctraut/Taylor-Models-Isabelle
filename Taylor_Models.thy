@@ -160,6 +160,23 @@ and   "\<And>x. x all_in I \<Longrightarrow> f x - Ipoly x (p::real poly) \<in> 
 shows "valid_tm I f t"
 using assms by (auto simp: valid_tm_def)
 
+lemma valid_tm_subset:
+assumes "I all_subset J"
+assumes "valid_tm J f t"
+shows "valid_tm I f t"
+proof-
+  from assms(1) have "(map (interval_map real) I) all_subset (map (interval_map real) J)"
+    apply(simp add: set_of_def interval_map_def)
+    apply(safe)
+    apply(metis less_eq_float.rep_eq lower_le_upper)
+    by (metis less_eq_float.rep_eq lower_le_upper upper_Ivl_b)
+  from all_subsetD[OF this] assms(2)
+  show ?thesis 
+    apply(cases t, simp)
+    using assms(1)
+    by simp
+qed
+
 
 subsection \<open>Interval bounds for taylor models\<close>
 
@@ -188,10 +205,16 @@ proof-
     by simp
 qed
 
+lemma compute_bound_poly_mono:
+assumes "num_params p \<le> length I"
+assumes "I all_subset J"
+assumes "a all_in I"
+shows "set_of (compute_bound_poly p I a) \<subseteq> set_of (compute_bound_poly p J a)"
+using Ipoly_interval_args_inc_mono[OF assms(1,2)]
+by simp
+
 lemma compute_bound_tm_correct:
-fixes I :: "float interval list"
-fixes x :: "real list"
-fixes f :: "real list \<Rightarrow> real"
+fixes I :: "float interval list" and x :: "real list" and f :: "real list \<Rightarrow> real"
 assumes "valid_tm I f t"
 assumes "x all_in I"
 assumes "a all_in I"
@@ -209,6 +232,18 @@ proof-
     using set_of_add_mono[OF compute_bound_poly_correct[OF valid(1) assms(2) assms(3)] valid(2)]
     by (simp add: t_def del: compute_bound_poly.simps)
 qed
+
+lemma compute_bound_tm_mono:
+fixes I :: "float interval list" and x :: "real list" and f :: "real list \<Rightarrow> real"
+assumes "valid_tm I f t"
+assumes "I all_subset J"
+assumes "a all_in I"
+shows "set_of (compute_bound_tm t I a) \<subseteq> set_of (compute_bound_tm t J a)"
+apply(cases t, simp del: compute_bound_poly.simps)
+apply(rule set_of_add_inc_left)
+apply(rule compute_bound_poly_mono[OF _ assms(2,3)])
+using assms(1)
+by simp
 
 
 subsection \<open>Computing taylor models for basic, univariate functions\<close>
@@ -266,13 +301,14 @@ using isDERIV_DERIV_floatarith assms
 by auto
 
 (* Faster derivation for univariate functions, producing smaller terms. *)
-(* TODO: Extend to Inverse and Arctan! *)
+(* TODO: Extend to Arctan, Exp, Log! *)
 fun deriv_0 :: "floatarith \<Rightarrow> nat \<Rightarrow> floatarith"
 where "deriv_0 (Cos (Var 0)) n = (case n mod 4
          of 0 \<Rightarrow> Cos (Var 0)
          | Suc 0 \<Rightarrow> Minus (Sin (Var 0))
          | Suc (Suc 0) \<Rightarrow> Minus (Cos (Var 0))
          | Suc (Suc (Suc 0)) \<Rightarrow> Sin (Var 0))"
+    | "deriv_0 (Inverse (Var 0)) n = (if n = 0 then Inverse (Var 0) else Mult (Num (fact n * (if n mod 2 = 0 then 1 else -1))) (Inverse (Power (Var 0) (Suc n))))"
     | "deriv_0 f n = deriv 0 f n"
 
 lemma deriv_0_correct:
@@ -280,9 +316,7 @@ assumes "isDERIV 0 f [t]"
 shows "((\<lambda>x. interpret_floatarith (deriv_0 f n) [x]) has_real_derivative interpret_floatarith (deriv_0 f (Suc n)) [t]) (at t)"
 apply(cases "(f, n)" rule: deriv_0.cases)
 apply(safe)
-defer
-using deriv_correct[OF assms]
-apply(simp_all)[31]
+using assms deriv_correct[OF assms]
 proof-
   assume "f = Cos (Var 0)"
   
@@ -293,15 +327,58 @@ proof-
     apply(subst (2) cos_minus[symmetric])
     by simp
   show "((\<lambda>x. interpret_floatarith (deriv_0 (Cos (Var 0)) n) [x]) has_real_derivative
-           interpret_floatarith (deriv_0 (Cos (Var 0)) (Suc n)) [t])
-           (at t)"
+         interpret_floatarith (deriv_0 (Cos (Var 0)) (Suc n)) [t])
+         (at t)"
     using n_mod_4_cases
     apply(safe)
     apply(simp_all add: mod_Suc_eq_Suc_mod[of n 4] Sin_sin field_differentiable_minus)
     using DERIV_cos field_differentiable_minus by fastforce
-qed
+next
+  assume f_def: "f = Inverse (Var 0)" and "isDERIV 0 f [t]"
+  hence "t \<noteq> 0"
+    by simp
+  {
+    fix n::nat and x::real
+    assume "x \<noteq> 0"
+    moreover have "(n mod 2 = 0 \<and> Suc n mod 2 = 1) \<or> (n mod 2 = 1 \<and> Suc n mod 2 = 0)"
+      apply(simp)
+      apply(safe)
+      apply(simp_all)
+      by (presburger)+
+    ultimately have "interpret_floatarith (deriv_0 f n) [x] = fact n * (-1::real)^n / (x^Suc n)"
+      apply(safe)
+      apply(simp_all add: f_def field_simps)
+      apply(safe)
+      using fact_real_float_equiv 
+      apply simp_all
+      proof(goals)
+        case (1 q)
+        hence n_decomp: "n = (q-1) * 2 + 1"
+          by simp
+        thus ?case
+          using fact_real_float_equiv
+          by simp
+      qed
+  }
+  note closed_formula = this
+  
+  have "((\<lambda>x. inverse (x ^ Suc n)) has_real_derivative -real (Suc n) * inverse (t ^ Suc (Suc n))) (at t)"
+    using DERIV_inverse_fun[OF DERIV_pow[where n="Suc n"], where s=UNIV]
+    apply(rule iffD1[OF DERIV_cong_ev[OF refl], rotated 2])
+    using `t \<noteq> 0`
+    by simp_all
+  hence "((\<lambda>x. fact n * (-1::real)^n * inverse (x ^ Suc n)) has_real_derivative fact (Suc n) * (- 1) ^ Suc n / t ^ Suc (Suc n)) (at t)"
+    apply(rule iffD1[OF DERIV_cong_ev, OF refl _ _ DERIV_cmult[where c="fact n * (-1::real)^n"], rotated 2])
+    using `t \<noteq> 0`
+    by (simp_all add: field_simps distrib_left real_of_nat_def)
+  thus "((\<lambda>x. interpret_floatarith (deriv_0 (Inverse (Var 0)) n) [x]) has_real_derivative
+         interpret_floatarith (deriv_0 (Inverse (Var 0)) (Suc n)) [t])
+         (at t)"
+    apply(rule iffD1[OF DERIV_cong_ev[OF refl _ closed_formula[OF `t \<noteq> 0`, symmetric]], unfolded f_def, rotated 1])
+    by (simp, safe, simp_all add: fact_real_float_equiv inverse_eq_divide even_iff_mod_2_eq_zero)
+qed (simp_all)
 
-lemma deriv_0_0[simp]:
+lemma deriv_0_0_idem[simp]:
 shows "deriv_0 f 0 = f"
 by (cases "(f, 0::nat)" rule: deriv_0.cases, simp_all)
 
@@ -867,6 +944,23 @@ qed
 
 subsection \<open>Computing taylor models for multivariate expressions\<close>
 
+(* For compute taylor models for expressions of the form "f o g", where f is a basic function, like Exp, Cos, etc.,
+   by composing taylor models for f and g.
+   For our correctness proofs, we need to make it explicit that the range of g on I is inside the domain of f,
+   by introducing the f_valid_on predicate. *)
+fun compute_tm_by_comp :: "nat \<Rightarrow> float interval list \<Rightarrow> float list \<Rightarrow> floatarith \<Rightarrow> taylor_model option \<Rightarrow> (float interval \<Rightarrow> bool) \<Rightarrow> taylor_model option"
+where "compute_tm_by_comp n I a f g f_valid_on = (
+         case g
+         of Some tg \<Rightarrow> (
+           let gI = (compute_bound_tm tg I a); ga = mid (compute_bound_tm tg a a)
+           in (
+             if f_valid_on gI
+             then (case tm_floatarith n gI ga f
+                   of Some tf \<Rightarrow> Some (tm_comp tf tg I a)
+                   | _ \<Rightarrow> None)
+             else None))
+         | _ \<Rightarrow> None)"
+
 (* Compute taylor models of degree n from floatarith expressions. *)
 fun compute_tm :: "nat \<Rightarrow> float interval list \<Rightarrow> float list \<Rightarrow> floatarith \<Rightarrow> taylor_model option"
 where "compute_tm _ I _ (Num c) = Some (tm_const c)"
@@ -881,23 +975,42 @@ where "compute_tm _ I _ (Num c) = Some (tm_const c)"
          of (Some t1, Some t2) \<Rightarrow> Some (tm_mul t1 t2 I a)
           | _ \<Rightarrow> None)"     
     | "compute_tm n I a (Power f k) = map_option (\<lambda>t. tm_pow t k I a) (compute_tm n I a f)"
-    | "compute_tm n I a (Inverse f) = (
-         case compute_tm n I a f
-         of Some t2 \<Rightarrow> (
-           let I' = compute_bound_tm t2 I a; a' = compute_bound_tm t2 a a
-           in if real (lower I') \<le> 0 \<and> 0 \<le> real (upper I') then None else
-              case tm_floatarith n I' (mid a') (Inverse (Var 0))
-              of Some t1 \<Rightarrow> Some (tm_comp t1 t2 I a)
-              | _ \<Rightarrow> None)
-         | _ \<Rightarrow> None)"
-    | "compute_tm n I a (Cos f) = (
-         case compute_tm n I a f
-         of Some t2 \<Rightarrow> (
-           case tm_floatarith n (compute_bound_tm t2 I a) (mid (compute_bound_tm t2 a a)) (Cos (Var 0))
-           of Some t1 \<Rightarrow> Some (tm_comp t1 t2 I a)
-           | _ \<Rightarrow> None)
-         | _ \<Rightarrow> None)"
+    | "compute_tm n I a (Inverse f) = compute_tm_by_comp n I a (Inverse (Var 0)) (compute_tm n I a f) (\<lambda>x. 0 < lower x \<or> upper x < 0)"
+    | "compute_tm n I a (Cos f) = compute_tm_by_comp n I a (Cos (Var 0)) (compute_tm n I a f) (\<lambda>x. True)"
+    | "compute_tm n I a (Arctan f) = compute_tm_by_comp n I a (Arctan (Var 0)) (compute_tm n I a f) (\<lambda>x. True)"
+    | "compute_tm n I a (Exp f) = compute_tm_by_comp n I a (Exp (Var 0)) (compute_tm n I a f) (\<lambda>x. True)"
     | "compute_tm _ _ _ _ = None"
+  
+lemma compute_tm_by_comp_valid:
+assumes "0 < n"
+assumes "a all_in I"
+assumes tx_valid: "valid_tm I (interpret_floatarith g) tg"
+assumes t_def: "Some t = compute_tm_by_comp n I a f (Some tg) c"
+assumes f_deriv: "\<And>x. x \<in> set_of (interval_map real (compute_bound_tm tg I a)) \<Longrightarrow> c (compute_bound_tm tg I a) \<Longrightarrow> isDERIV 0 f [x]"
+shows "valid_tm I ((\<lambda>x. interpret_floatarith f [x]) o interpret_floatarith g) t"
+proof-
+  from t_def
+  obtain t1
+  where t1_def: "Some t1 = tm_floatarith n (compute_bound_tm tg I a) (mid (compute_bound_tm tg (map interval_of a) a)) f"
+  and t_decomp: "t = tm_comp t1 tg I a"
+  and c_true:   "c (compute_bound_tm tg I a)"
+    apply(simp del: tm_floatarith.simps)
+    unfolding Let_def
+    by (metis (no_types, lifting) option.case_eq_if option.collapse option.distinct(1) option.sel)
+  have a1: "mid (compute_bound_tm tg (map interval_of a) a) \<in> set_of (compute_bound_tm tg I a)"
+    apply(rule rev_subsetD[OF mid_in_interval compute_bound_tm_mono[OF valid_tm_subset[OF _ tx_valid]]])
+    using `a all_in I`
+    by (simp_all add: set_of_def)
+  show ?thesis
+    unfolding t_decomp
+    apply(rule tm_comp_valid[OF _ _ tx_valid `a all_in I`])
+    apply(rule compute_bound_tm_correct[OF tx_valid _ `a all_in I`])
+    apply(simp)
+    using tm_floatarith_valid[OF `0 < n` a1 f_deriv[OF _ c_true] t1_def]
+    apply(cases t1)
+    apply(simp, safe)
+    by (metis (no_types, lifting) Suc_length_conv length_0_conv nth_Cons_0)
+qed
 
 lemma compute_tm_valid:
 assumes "0 < n"
@@ -963,97 +1076,37 @@ next
     by (simp add: t_decomp fun_pow)
 next
   case (Inverse f t)
-  obtain tm_f where tm_f_def: "Some tm_f = compute_tm n I a f"
-    using Inverse(3)[unfolded compute_tm.simps]
-    by (metis (no_types, lifting) option.case_eq_if option.collapse)
-  def I'\<equiv>"compute_bound_tm tm_f I a"
-  def a'\<equiv>"compute_bound_tm tm_f a a"
-  have zero_notin_I': "\<not>(real (lower I') \<le> 0 \<and> 0 \<le> real (upper I'))"
-    using Inverse(3)
-    by (auto simp: I'_def tm_f_def[symmetric])
-  obtain tm_inv where tm_inv_def: "Some tm_inv = tm_floatarith n (I') (mid a') (Inverse (Var 0))"
-    using Inverse(3)
-    apply(simp add: I'_def a'_def tm_f_def[symmetric] Let_def del: tm_floatarith.simps)
-    using zero_notin_I'[unfolded I'_def]
-    by (metis (no_types, lifting) interval_of_def map_eq_conv option.case_eq_if option.collapse)
-    
-  have t_decomp: "t = tm_comp tm_inv tm_f I a"
-    using Inverse(3)
-    apply(simp add: I'_def[symmetric] a'_def[symmetric] tm_f_def[symmetric] del: tm_floatarith.simps)
-    by (metis option.distinct(1) option.inject option.simps(5) tm_inv_def)
-  have valid_tm_tm_f: "valid_tm I (interpret_floatarith f) tm_f"
-    using Inverse(1)[OF Inverse(2)[simplified] tm_f_def] .
-    
-  obtain tm_f_p tm_f_e where tm_f_decomp: "tm_f = TaylorModel tm_f_p tm_f_e"
-    using taylor_model.exhaust by metis
-  
-  have "mid (compute_bound_tm tm_f (map interval_of a) a) \<in> set_of (compute_bound_tm tm_f (map interval_of a) a)"
-    by (rule mid_in_interval)
-  also have "... \<subseteq> set_of (compute_bound_tm tm_f I a)"
-    using `a all_in I` valid_tm_tm_f
-    apply(simp add: tm_f_decomp)
-    apply(rule set_of_add_inc_left)
-    apply(rule Ipoly_interval_args_inc_mono)
-    by (simp_all add: set_of_def)
-  finally have a1: "mid (compute_bound_tm tm_f (map interval_of a) a) \<in> set_of (compute_bound_tm tm_f I a)"
-    .
-    
-  have [simp]: "interpret_floatarith (Inverse (Var 0)) = (\<lambda>x. inverse (x ! 0))"
-    by auto
-    
-  obtain l u where I'_decomp: "I' = Ivl l u" and l_le_u: "l \<le> u" using interval_exhaust by blast
-  have "0 \<notin> set_of (interval_map real (compute_bound_tm tm_f I a))"
-    apply(subst I'_decomp[unfolded I'_def])
-    using zero_notin_I' using l_le_u 
-    by (simp add: I'_decomp set_of_def)
-  hence a2: "valid_tm [compute_bound_tm tm_f I a] (\<lambda>x. inverse (x ! 0)) tm_inv"
-    using tm_floatarith_valid[OF `0 < n` a1 _ tm_inv_def[unfolded I'_def a'_def]] 
-    by auto
-  show ?case
-    unfolding t_decomp
-    using tm_comp_valid[OF _ a2 Inverse(1)[OF _ tm_f_def] `a all_in I`, simplified comp_def]
-          compute_bound_tm_correct[OF Inverse(1)[OF _ tm_f_def] _ `a all_in I`]
-          Inverse.prems(1)
-    by auto
+  from Inverse(3) obtain tf where tf_def: "Some tf = compute_tm n I a f"
+    by (simp, metis (no_types, lifting) option.case_eq_if option.collapse)
+  have "\<And>x. x \<in> set_of (interval_map real (compute_bound_tm tf I a)) \<Longrightarrow>
+          0 < lower (compute_bound_tm tf I a) \<or> upper (compute_bound_tm tf I a) < 0 \<Longrightarrow>
+          isDERIV 0 (Inverse (Var 0)) [x]"
+    apply(simp add: set_of_def interval_map_def, safe, simp_all)
+    by (metis less_eq_float.rep_eq less_le_not_le lower_le_upper upper_Ivl_b)
+  thus ?case
+    using compute_tm_by_comp_valid[OF `0 < n` `a all_in I` Inverse(1)[OF Inverse(2)[simplified] tf_def] Inverse(3)[unfolded compute_tm.simps tf_def[symmetric]]]
+    by (cases t, simp)
 next
   case (Cos f t)
-  obtain tm_f where tm_f_def: "Some tm_f = compute_tm n I a f"
-    using Cos(3)[unfolded compute_tm.simps]
-    by (metis (no_types, lifting) option.case_eq_if option.collapse)
-  then obtain tm_cos where tm_cos_def: "Some tm_cos = tm_floatarith n (compute_bound_tm tm_f I a) (mid (compute_bound_tm tm_f (map interval_of a) a)) (Cos (Var 0))"
-    using Cos(3)[unfolded compute_tm.simps]
-    by (metis (no_types, lifting) option.case_eq_if option.collapse option.simps(5))
-  have t_decomp: "t = tm_comp tm_cos tm_f I a"
-    using Cos(3) tm_f_def[symmetric] tm_cos_def[symmetric]
-    by auto
-  have valid_tm_tm_f: "valid_tm I (interpret_floatarith f) tm_f"
-    using Cos(1)[OF Cos(2)[simplified] tm_f_def] .
-    
-  obtain tm_f_p tm_f_e where tm_f_decomp: "tm_f = TaylorModel tm_f_p tm_f_e"
-    using taylor_model.exhaust by metis
-  
-  have "mid (compute_bound_tm tm_f (map interval_of a) a) \<in> set_of (compute_bound_tm tm_f (map interval_of a) a)"
-    by (rule mid_in_interval)
-  also have "... \<subseteq> set_of (compute_bound_tm tm_f I a)"
-    using `a all_in I` valid_tm_tm_f
-    apply(simp add: tm_f_decomp)
-    apply(rule set_of_add_inc_left)
-    apply(rule Ipoly_interval_args_inc_mono)
-    by (simp_all add: set_of_def)
-  finally have a1: "mid (compute_bound_tm tm_f (map interval_of a) a) \<in> set_of (compute_bound_tm tm_f I a)"
-    .
-  have [simp]: "interpret_floatarith (Cos (Var 0)) = (\<lambda>x. cos (x ! 0))"
-    by auto
-  have a2: "valid_tm [compute_bound_tm tm_f I a] (\<lambda>x. cos (x ! 0)) tm_cos"
-    using tm_floatarith_valid[OF `0 < n` a1 _ tm_cos_def, simplified]
-    by auto
-    
+  from Cos(3) obtain tf where tf_def: "Some tf = compute_tm n I a f"
+    by (simp, metis (no_types, lifting) option.case_eq_if option.collapse)
   show ?case
-    unfolding t_decomp
-    using tm_comp_valid[OF _ a2 Cos(1)[OF _ tm_f_def] `a all_in I`, simplified comp_def]
-          compute_bound_tm_correct[OF Cos(1)[OF _ tm_f_def] _ `a all_in I`]
-          tm_floatarith_valid[OF `0 < n` a1 _ tm_cos_def] Cos.prems(1)
-    by auto
+    using compute_tm_by_comp_valid[OF `0 < n` `a all_in I` Cos(1)[OF Cos(2)[simplified] tf_def] Cos(3)[unfolded compute_tm.simps tf_def[symmetric]]]
+    by (cases t, simp)
+next
+  case (Arctan f t)
+  from Arctan(3) obtain tf where tf_def: "Some tf = compute_tm n I a f"
+    by (simp, metis (no_types, lifting) option.case_eq_if option.collapse)
+  show ?case
+    using compute_tm_by_comp_valid[OF `0 < n` `a all_in I` Arctan(1)[OF Arctan(2)[simplified] tf_def] Arctan(3)[unfolded compute_tm.simps tf_def[symmetric]]]
+    by (cases t, simp)
+next
+  case (Exp f t)
+  from Exp(3) obtain tf where tf_def: "Some tf = compute_tm n I a f"
+    by (simp, metis (no_types, lifting) option.case_eq_if option.collapse)
+  show ?case
+    using compute_tm_by_comp_valid[OF `0 < n` `a all_in I` Exp(1)[OF Exp(2)[simplified] tf_def] Exp(3)[unfolded compute_tm.simps tf_def[symmetric]]]
+    by (cases t, simp)
 qed (simp_all add: valid_tm_def)
 
 
@@ -1062,7 +1115,6 @@ value "the (compute_tm 7 [Ivl 0 2] [1] (Num 2))"
 value "the (compute_tm 7 [Ivl 0 2] [1] (Var 0))"
 value "the (compute_tm 7 [Ivl 0 2, Ivl 0 2] [1,1] (Add (Var 0) (Var 1)))"
 value "the (compute_tm 10 [Ivl (-1) 1] [0] (Cos (Var 0)))"
-(* TODO: This is far too slow! *)
 value "the (compute_tm 5 [Ivl (1) 3] [2] (Inverse (Var 0)))"
 
 
@@ -1073,6 +1125,8 @@ fun compute_ivl_bound :: "nat \<Rightarrow> float interval list \<Rightarrow> fl
 where "compute_ivl_bound n I f = (case compute_tm n I (map mid I) f of None \<Rightarrow> None | Some t \<Rightarrow> Some (compute_bound_tm t I (map mid I)))"
 
 value "map_option (interval_map real) (compute_ivl_bound 10 [Ivl (-1) 1] (Power (Cos (Var 0)) 2))"
+value "map_option (interval_map real) (compute_ivl_bound 10 [Ivl (1) 2] (Inverse (Add (Cos (Var 0)) (Num 2))))"
+value "map_option (interval_map real) (compute_ivl_bound 10 [Ivl (1) 2] (Inverse (Var 0)))"
 
 (* Automatically computed bounds are correct. *)
 lemma compute_ivl_bound_correct:
