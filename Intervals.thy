@@ -510,12 +510,6 @@ proof
     done
 qed
 
-(* TODO: Prove this. I don't need it, but it would be nice to have. *)
-lemma set_of_mult_distrib:
-fixes A :: "'a::linordered_field interval"
-shows "set_of (A * B) = set_of A * set_of B"
-oops
-
 lemma set_of_mul_inc_left:
 fixes A :: "'a::linordered_idom interval"
 assumes "set_of A \<subseteq> set_of A'"
