@@ -129,27 +129,27 @@ where "valid_tm I f (TaylorModel p e) = (num_params p \<le> length I \<and> (\<f
 
 lemma valid_tmD[elim]:
 assumes "valid_tm I f t"
-obtains p l u
-where "t = TaylorModel p (Ivl l u)"
-and   "l \<le> u"
-and   "num_params p \<le> length I"
-and   "\<And>x. x all_in I \<Longrightarrow> f x - Ipoly x (p::real poly) \<in> {l..u}"
-proof-
-  from assms obtain p e where t_def: "t = TaylorModel p e" using taylor_model.exhaust by auto
-  obtain l u where e_def: "e = Ivl l u" and l_le_u: "l \<le> u" using interval_exhaust by blast
-      
-  show ?thesis
-    apply(rule, simp add: t_def(1) e_def)
-    using assms l_le_u by (auto simp: t_def e_def set_of_def)
-qed
-
-lemma valid_tmD':
-assumes "valid_tm I f t"
 obtains p e
 where "t = TaylorModel p e"
 and   "num_params p \<le> length I"
 and   "\<And>x. x all_in I \<Longrightarrow> f x - Ipoly x (p::real poly) \<in> set_of e"
-using assms valid_tm.simps by blast
+proof-
+  obtain p e where t_decomp: "t = TaylorModel p e" using taylor_model.exhaust by auto
+  moreover have "num_params p \<le> length I"
+           and  "\<And>x. x all_in map (interval_map real) I \<Longrightarrow> f x - Ipoly x (poly_map real p) \<in> set_of (interval_map real e)"
+    using assms
+    by (auto simp: t_decomp)
+  ultimately show ?thesis
+    using that by simp  
+qed
+
+lemma valid_tmD':
+assumes "valid_tm I f t"
+and "t = TaylorModel p e"
+shows "num_params p \<le> length I"
+and   "\<And>x. x all_in I \<Longrightarrow> f x - Ipoly x (p::real poly) \<in> set_of e"
+using valid_tmD[OF assms(1)] assms(2)
+by auto
 
 lemma valid_tmI[intro]:
 assumes "t = TaylorModel p e"
@@ -750,11 +750,25 @@ where "eval_poly_at_tm (poly.C c) t I a = tm_const c"
 fun tm_comp :: "taylor_model \<Rightarrow> taylor_model \<Rightarrow> float interval list \<Rightarrow> float list \<Rightarrow> taylor_model"
 where "tm_comp (TaylorModel p e) t I a = tm_inc_error (eval_poly_at_tm p t I a) e"
 
-(* tm_abs is implemented very naively, because I don't expect it to be very useful.*)
+(* tm_abs, tm_min and tm_max are implemented extremely naively, because I don't expect them to be very useful.
+   The implementation is fairly modular, i.e. tm_{abs,min,max} all can easily be swapped out if the corresponding 
+   correctness lemmas tm_{abs,min,max}_valid are updated as well. *)
 fun tm_abs :: "taylor_model \<Rightarrow> float interval list \<Rightarrow> float list \<Rightarrow> taylor_model"
 where "tm_abs t I a = (
   let bound=compute_bound_tm t I a; abs_bound=Ivl (0::float) (max (abs (lower bound)) (abs (upper bound)))
   in TaylorModel (poly.C (mid abs_bound)) (centered abs_bound))"
+
+fun tm_and :: "taylor_model \<Rightarrow> taylor_model \<Rightarrow> float interval list \<Rightarrow> float list \<Rightarrow> taylor_model"
+where "tm_and t1 t2 I a = (
+  let b1=compute_bound_tm t1 I a; b2=compute_bound_tm t2 I a;
+      b_combined=Ivl (min (lower b1) (lower b2)) (max (upper b1) (upper b2))
+  in TaylorModel (poly.C (mid b_combined)) (centered b_combined))"
+  
+fun tm_min :: "taylor_model \<Rightarrow> taylor_model \<Rightarrow> float interval list \<Rightarrow> float list \<Rightarrow> taylor_model"
+where "tm_min t1 t2 I a = tm_and t1 t2 I a"
+  
+fun tm_max :: "taylor_model \<Rightarrow> taylor_model \<Rightarrow> float interval list \<Rightarrow> float list \<Rightarrow> taylor_model"
+where "tm_max t1 t2 I a = tm_and t1 t2 I a"
 
 (* Validity of is preserved under taylor model arithmetic. *)
 lemma tm_neg_valid:
@@ -762,22 +776,21 @@ assumes "valid_tm I f t"
 shows "valid_tm I (-f) (tm_neg t)"
 proof-
   from valid_tmD[OF assms]
-  obtain p l u where t_def: 
-    "t = TaylorModel p (Ivl l u)"
-    "l \<le> u"
+  obtain p e where t_def: 
+    "t = TaylorModel p e"
     "num_params p \<le> length I"
-    "\<And>x::real list. x all_in I \<Longrightarrow> f x - Ipoly x p \<in> {l..u}"
-      by blast
+    "\<And>x::real list. x all_in I \<Longrightarrow> f x - Ipoly x p \<in> set_of e"
+      by auto
   show ?thesis
     apply(rule)
     apply(simp add: t_def(1) uminus_interval_def)
-    using t_def(3)
+    using t_def(2)
     apply(simp)
     proof-
       fix x::"real list" assume assms: "x all_in I"
-      show "(- f) x - Ipoly x (poly_map real (Neg p)) \<in> set_of (interval_map real (Ivl (- upper (Ivl l u)) (- l)))"
-        using t_def(4)[OF assms] `l \<le> u`
-        by (simp add: set_of_def)
+      show "(- f) x - Ipoly x (poly_map real (Neg p)) \<in> set_of (interval_map real (Ivl (- upper e) (- lower e)))"
+        using t_def(3)[OF assms]
+        by (simp add: set_of_def interval_map_def)
     qed
 qed
 
@@ -787,33 +800,30 @@ assumes "valid_tm I g t2"
 shows "valid_tm I (f + g) (tm_add t1 t2)"
 proof-
   from valid_tmD[OF assms(1)]
-  obtain p1 l1 u1 where t1_def:
-    "t1 = TaylorModel p1 (Ivl l1 u1)"
-    "l1 \<le> u1"
+  obtain p1 e1 where t1_def:
+    "t1 = TaylorModel p1 e1"
     "num_params p1 \<le> length I"
-    "\<And>x::real list. x all_in I \<Longrightarrow> f x - Ipoly x p1 \<in> {l1..u1}"
-      by blast
+    "\<And>x::real list. x all_in I \<Longrightarrow> f x - Ipoly x p1 \<in> set_of e1"
+      by auto
   from valid_tmD[OF assms(2)]
-  obtain p2 l2 u2 where t2_def:
-    "t2 = TaylorModel p2 (Ivl l2 u2)"
-    "l2 \<le> u2"
+  obtain p2 e2 where t2_def:
+    "t2 = TaylorModel p2 e2"
     "num_params p2 \<le> length I"
-    "\<And>x::real list. x all_in I \<Longrightarrow> g x - Ipoly x p2 \<in> {l2..u2}"
-      by blast
+    "\<And>x::real list. x all_in I \<Longrightarrow> g x - Ipoly x p2 \<in> set_of e2"
+      by auto
    
   show "valid_tm I (f + g) (tm_add t1 t2)"
     proof(rule valid_tmI)
-      show "tm_add t1 t2 = TaylorModel (poly.Add p1 p2) (Ivl (l1+l2) (u1+u2))"
-        using `l1 \<le> u1` `l2 \<le> u2`
+      show "tm_add t1 t2 = TaylorModel (poly.Add p1 p2) (Ivl (lower e1 + lower e2) (upper e1 + upper e2))"
         by (simp add: t1_def(1) t2_def(1) plus_interval_def)
     next
       show "num_params (poly.Add p1 p2) \<le> length I"
-      by (simp add: t1_def(3) t2_def(3))
+      by (simp add: t1_def(2) t2_def(2))
     next
       fix x::"real list" assume assms: "x all_in I"
-      from t1_def(4)[OF this] t2_def(4)[OF this]
-       show "(f + g) x - Ipoly x (poly.Add p1 p2) \<in> set_of ((Ivl (l1 + l2) (u1 + u2)))"
-        by (simp add: set_of_def)
+      from t1_def(3)[OF this] t2_def(3)[OF this]
+       show "(f + g) x - Ipoly x (poly.Add p1 p2) \<in> set_of ((Ivl (lower e1 + lower e2) (upper e1 + upper e2)))"
+        by (simp add: set_of_def interval_map_def)
     qed
 qed
 
@@ -831,13 +841,13 @@ assumes "valid_tm I g t2"
 assumes "a all_in I"
 shows "valid_tm I (f * g) (tm_mul t1 t2 I a)"
 proof-
-  from valid_tmD'[OF assms(1)]
+  from valid_tmD[OF assms(1)]
   obtain p1 i1 where t1_def:
     "t1 = TaylorModel p1 i1"
     "num_params p1 \<le> length I"
     "\<And>x::real list. x all_in I \<Longrightarrow> f x - Ipoly x p1 \<in> set_of i1"
       by blast
-  from valid_tmD'[OF assms(2)]
+  from valid_tmD[OF assms(2)]
   obtain p2 i2 where t2_def:
     "t2 = TaylorModel p2 i2"
     "num_params p2 \<le> length I"
@@ -986,12 +996,94 @@ proof-
     qed
 qed
 
+lemma tm_and_valid_left:
+assumes "a all_in I"
+assumes "valid_tm I f t1"
+shows "valid_tm I f (tm_and t1 t2 I a)"
+proof-
+  def b1\<equiv>"compute_bound_tm t1 I a"
+  def b2\<equiv>"compute_bound_tm t2 I a"
+  def b_combined\<equiv>"Ivl (min (lower b1) (lower b2)) (max (upper b1) (upper b2))"
+
+  obtain p e where tm_and_decomp: "tm_and t1 t2 I a = TaylorModel p e" using taylor_model.exhaust by auto
+  then have p_def: "p = (mid b_combined)\<^sub>p"
+        and e_def: "e = centered b_combined"
+    by (auto simp: Let_def b1_def b2_def b_combined_def)
+  
+  show ?thesis
+    apply(rule valid_tmI[OF tm_and_decomp])
+    apply(simp add: p_def)
+    apply(drule compute_bound_tm_correct[OF assms(2) _ assms(1)])
+    apply(simp add: set_of_def e_def p_def b_combined_def b1_def)
+    apply(safe)
+    by (simp_all add: interval_map_def minus_interval_def real_of_float_max real_of_float_min)
+qed
+
+lemma tm_and_valid_right:
+assumes "a all_in I"
+assumes "valid_tm I g t2"
+shows "valid_tm I g (tm_and t1 t2 I a)"
+proof-
+  {
+    fix t1 t2 I a
+    have "tm_and t1 t2 I a = tm_and t2 t1 I a"
+      by (simp, metis (mono_tags, lifting) max.commute min.commute)
+  }
+  thus ?thesis
+    using tm_and_valid_left[OF assms(1,2)]
+    by(simp)
+qed
+
+lemma tm_min_valid:
+assumes "a all_in I"
+assumes "valid_tm I f t1"
+assumes "valid_tm I g t2"
+shows "valid_tm I (\<lambda>x. min (f x) (g x)) (tm_min t1 t2 I a)"
+proof-
+  obtain p e where tm_and_decomp: "tm_and t1 t2 I a = TaylorModel p e"
+    using taylor_model.exhaust by auto
+  
+  note a = valid_tmD'[OF tm_and_valid_left[OF assms(1,2)] tm_and_decomp]
+  note b = valid_tmD'[OF tm_and_valid_right[OF assms(1,3)] tm_and_decomp]
+  
+  show ?thesis
+  unfolding tm_min.simps
+  proof(rule valid_tmI[OF tm_and_decomp a(1)])
+    fix x::"real list" assume "x all_in I"
+    from a(2)[OF this] b(2)[OF this]
+    show "min (f x) (g x) - Ipoly x p \<in> set_of e"
+      by (cases "f x \<le> g x", simp_all add: min_def)
+  qed
+qed
+
+lemma tm_max_valid:
+assumes "a all_in I"
+assumes "valid_tm I f t1"
+assumes "valid_tm I g t2"
+shows "valid_tm I (\<lambda>x. max (f x) (g x)) (tm_max t1 t2 I a)"
+proof-
+  obtain p e where tm_and_decomp: "tm_and t1 t2 I a = TaylorModel p e"
+    using taylor_model.exhaust by auto
+  
+  note a = valid_tmD'[OF tm_and_valid_left[OF assms(1,2)] tm_and_decomp]
+  note b = valid_tmD'[OF tm_and_valid_right[OF assms(1,3)] tm_and_decomp]
+  
+  show ?thesis
+  unfolding tm_max.simps
+  proof(rule valid_tmI[OF tm_and_decomp a(1)])
+    fix x::"real list" assume "x all_in I"
+    from a(2)[OF this] b(2)[OF this]
+    show "max (f x) (g x) - Ipoly x p \<in> set_of e"
+      by (cases "f x \<le> g x", simp_all add: max_def)
+  qed
+qed
+
+
 subsection \<open>Computing taylor models for multivariate expressions\<close>
 
-(* For compute taylor models for expressions of the form "f (g x)", where f is an elementary function, like exp, cos, etc.,
-   by composing taylor models for f and g.
-   For our correctness proofs, we need to make it explicit that the range of g on I is inside the domain of f,
-   by introducing the f_valid_on predicate. *)
+(* Compute taylor models for expressions of the form "f (g x)", where f is an elementary function like exp or cos,
+   by composing taylor models for f and g. For our correctness proof, we need to make it explicit that the range
+   of g on I is inside the domain of f, by introducing the f_valid_on predicate. *)
 fun compute_tm_by_comp :: "nat \<Rightarrow> nat \<Rightarrow> float interval list \<Rightarrow> float list \<Rightarrow> floatarith \<Rightarrow> taylor_model option \<Rightarrow> (float interval \<Rightarrow> bool) \<Rightarrow> taylor_model option"
 where "compute_tm_by_comp prec n I a f g f_valid_on = (
          case g
@@ -1027,8 +1119,14 @@ where "compute_tm _ _ I _ (Num c) = Some (tm_const c)"
     | "compute_tm prec n I a (Sqrt f) = compute_tm_by_comp prec n I a (Sqrt (Var 0)) (compute_tm prec n I a f) (\<lambda>x. 0 < lower x)"
     | "compute_tm prec n I a Pi = Some (tm_pi prec)"
     | "compute_tm prec n I a (Abs f) = map_option (\<lambda>t. tm_abs t I a) (compute_tm prec n I a f)"
-    | "compute_tm prec n I a (Min l r) = None"
-    | "compute_tm prec n I a (Max l r) = None"
+    | "compute_tm prec n I a (Min l r) = (
+         case (compute_tm prec n I a l, compute_tm prec n I a r) 
+         of (Some t1, Some t2) \<Rightarrow> Some (tm_min t1 t2 I a)
+          | _ \<Rightarrow> None)"
+    | "compute_tm prec n I a (Max l r) = (
+         case (compute_tm prec n I a l, compute_tm prec n I a r) 
+         of (Some t1, Some t2) \<Rightarrow> Some (tm_max t1 t2 I a)
+          | _ \<Rightarrow> None)"
 
 lemma compute_tm_by_comp_valid:
 assumes "0 < n"
@@ -1192,6 +1290,44 @@ next
   show ?case
      unfolding t_def interpret_floatarith.simps(9) comp_def
      by assumption
+next
+  case (Min l r t)
+  from Min(4)
+  obtain t1 t2 where t_decomp:
+    "t = tm_min t1 t2 I a" and "Some t1 = compute_tm prec n I a l" and "Some t2 = compute_tm prec n I a r"
+    by (smt compute_tm.simps(15) option.case_eq_if option.collapse option.distinct(2) option.inject split_conv)
+  from this(2,3) Min(1-3)
+  have t1_valid: "valid_tm I (interpret_floatarith l) t1"
+  and  t2_valid: "valid_tm I (interpret_floatarith r) t2"
+    by auto
+
+  have [simp]: "interpret_floatarith (floatarith.Min l r) = (\<lambda>vs. min (interpret_floatarith l vs) (interpret_floatarith r vs))"
+    by auto
+    
+  show "valid_tm I (interpret_floatarith (floatarith.Min l r)) t"
+    unfolding t_decomp(1)
+    apply(simp del: tm_min.simps)
+    using `a all_in I` t1_valid t2_valid
+    by (rule tm_min_valid)
+next
+  case (Max l r t)
+  from Max(4)
+  obtain t1 t2 where t_decomp:
+    "t = tm_max t1 t2 I a" and "Some t1 = compute_tm prec n I a l" and "Some t2 = compute_tm prec n I a r"
+    by (smt compute_tm.simps(16) option.case_eq_if option.collapse option.distinct(2) option.inject split_conv)
+  from this(2,3) Max(1-3)
+  have t1_valid: "valid_tm I (interpret_floatarith l) t1"
+  and  t2_valid: "valid_tm I (interpret_floatarith r) t2"
+    by auto
+
+  have [simp]: "interpret_floatarith (floatarith.Max l r) = (\<lambda>vs. max (interpret_floatarith l vs) (interpret_floatarith r vs))"
+    by auto
+    
+  show "valid_tm I (interpret_floatarith (floatarith.Max l r)) t"
+    unfolding t_decomp(1)
+    apply(simp del: tm_max.simps)
+    using `a all_in I` t1_valid t2_valid
+    by (rule tm_max_valid)
 qed (simp_all add: valid_tm_def)
 
 (* Compute some taylor models. *)
