@@ -1171,15 +1171,15 @@ lemma head_eq_headn0: "head p = headn p 0"
 lemma head_nz[simp]: "isnpolyh p n0 \<Longrightarrow> head p = 0\<^sub>p \<longleftrightarrow> p = 0\<^sub>p"
   by (simp add: head_eq_headn0)
 
-(*lemma isnpolyh_zero_iff:
+lemma isnpolyh_zero_iff:
 fixes p :: "'a::field_char_0 poly"
   assumes nq: "isnpolyh p n0"
-    and eq :"\<forall>bs. wf_bs bs p \<longrightarrow> \<lparr>p\<rparr>\<^sub>p\<^bsup>bs\<^esup> = 0"
+    and eq :"\<forall>bs. wf_bs bs p \<longrightarrow> Ipoly bs p = 0"
   shows "p = 0\<^sub>p"
   using nq eq
 proof (induct "maxindex p" arbitrary: p n0 rule: less_induct)
   case less
-  note np = \<open>isnpolyh p n0\<close> and zp = \<open>\<forall>bs. wf_bs bs p \<longrightarrow> \<lparr>p\<rparr>\<^sub>p\<^bsup>bs\<^esup> = (0::'a)\<close>
+  note np = \<open>isnpolyh p n0\<close> and zp = \<open>\<forall>bs. wf_bs bs p \<longrightarrow> Ipoly bs p = (0::'a)\<close>
   {
     assume nz: "maxindex p = 0"
     then obtain c where "p = C c"
@@ -1231,7 +1231,7 @@ proof (induct "maxindex p" arbitrary: p n0 rule: less_induct)
       then have "poly (polypoly' (?ts @ xs) p) = poly []"
         by auto
       then have "\<forall>c \<in> set (coefficients p). Ipoly (?ts @ xs) (decrpoly c) = 0"
-        using poly_zero by (simp add: polypoly'_def)
+        by (simp add: poly_zero polypoly'_def)
       with coefficients_head[of p, symmetric]
       have th0: "Ipoly (?ts @ xs) ?hd = 0"
         by simp
@@ -1239,10 +1239,10 @@ proof (induct "maxindex p" arbitrary: p n0 rule: less_induct)
         unfolding wf_bs_def by simp
       with th0 wf_bs_I[of ?ts ?hd xs] have "Ipoly ?ts ?hd = 0"
         by simp
-      with wf'' wf_bs_I[of ?ts ?hd ?rs] bs_ts_eq have "\<lparr>?hd\<rparr>\<^sub>p\<^bsup>bs\<^esup> = 0"
+      with wf'' wf_bs_I[of ?ts ?hd ?rs] bs_ts_eq have "Ipoly bs ?hd = 0"
         by simp
     }
-    then have hdz: "\<forall>bs. wf_bs bs ?hd \<longrightarrow> \<lparr>?hd\<rparr>\<^sub>p\<^bsup>bs\<^esup> = (0::'a)"
+    then have hdz: "\<forall>bs. wf_bs bs ?hd \<longrightarrow> Ipoly bs ?hd = (0::'a)"
       by blast
     from less(1)[OF ihd_lt_n nhd] hdz have "?hd = 0\<^sub>p"
       by blast
@@ -1256,12 +1256,12 @@ qed
 lemma isnpolyh_unique:
   assumes np: "isnpolyh p n0"
     and nq: "isnpolyh q n1"
-  shows "(\<forall>bs. \<lparr>p\<rparr>\<^sub>p\<^bsup>bs\<^esup> = (\<lparr>q\<rparr>\<^sub>p\<^bsup>bs\<^esup> :: 'a::field)) \<longleftrightarrow> p = q"
+  shows "(\<forall>bs. Ipoly bs p = (Ipoly bs q :: 'a::field_char_0)) \<longleftrightarrow> p = q"
 proof auto
-  assume H: "\<forall>bs. (\<lparr>p\<rparr>\<^sub>p\<^bsup>bs\<^esup> ::'a) = \<lparr>q\<rparr>\<^sub>p\<^bsup>bs\<^esup>"
-  then have "\<forall>bs.\<lparr>p -\<^sub>p q\<rparr>\<^sub>p\<^bsup>bs\<^esup>= (0::'a)"
+  assume H: "\<forall>bs. (Ipoly bs p ::'a) = Ipoly bs q"
+  then have "\<forall>bs. Ipoly bs (p -\<^sub>p q) = (0::'a)"
     by simp
-  then have "\<forall>bs. wf_bs bs (p -\<^sub>p q) \<longrightarrow> \<lparr>p -\<^sub>p q\<rparr>\<^sub>p\<^bsup>bs\<^esup> = (0::'a)"
+  then have "\<forall>bs. wf_bs bs (p -\<^sub>p q) \<longrightarrow> Ipoly bs (p -\<^sub>p q) = (0::'a)"
     using wf_bs_polysub[where p=p and q=q] by auto
   with isnpolyh_zero_iff[OF polysub_normh[OF np nq]] polysub_0[OF np nq] show "p = q"
     by blast
@@ -1271,7 +1271,7 @@ qed
 text \<open>consequences of unicity on the algorithms for polynomial normalization\<close>
 
 lemma polyadd_commute:
-  fixes p :: "'a::field poly"
+  fixes p :: "'a::field_char_0 poly"
   assumes np: "isnpolyh p n0"
       and nq: "isnpolyh q n1"
   shows "p +\<^sub>p q = q +\<^sub>p p"
@@ -1285,7 +1285,7 @@ lemma one_normh: "isnpolyh (1)\<^sub>p n"
   by simp
 
 lemma polyadd_0[simp]:
-  fixes p :: "'a::field poly"
+  fixes p :: "'a::field_char_0 poly"
   assumes np: "isnpolyh p n0"
   shows "p +\<^sub>p 0\<^sub>p = p"
     and "0\<^sub>p +\<^sub>p p = p"
@@ -1293,7 +1293,7 @@ lemma polyadd_0[simp]:
     isnpolyh_unique[OF polyadd_normh[OF zero_normh np] np] by simp_all
 
 lemma polymul_1[simp]:
-  fixes p :: "'a::field poly"
+  fixes p :: "'a::field_char_0 poly"
   assumes np: "isnpolyh p n0"
   shows "p *\<^sub>p (1)\<^sub>p = p"
     and "(1)\<^sub>p *\<^sub>p p = p"
@@ -1301,7 +1301,7 @@ lemma polymul_1[simp]:
     isnpolyh_unique[OF polymul_normh[OF one_normh np] np] by simp_all
 
 lemma polymul_0[simp]:
-  fixes p :: "'a::field poly"
+  fixes p :: "'a::field_char_0 poly"
   assumes np: "isnpolyh p n0"
   shows "p *\<^sub>p 0\<^sub>p = 0\<^sub>p"
     and "0\<^sub>p *\<^sub>p p = 0\<^sub>p"
@@ -1309,7 +1309,7 @@ lemma polymul_0[simp]:
     isnpolyh_unique[OF polymul_normh[OF zero_normh np] zero_normh] by simp_all
 
 lemma polymul_commute:
-  fixes p :: "'a::field poly"
+  fixes p :: "'a::field_char_0 poly"
   assumes np: "isnpolyh p n0"
     and nq: "isnpolyh q n1"
   shows "p *\<^sub>p q = q *\<^sub>p p"
@@ -1319,7 +1319,7 @@ lemma polymul_commute:
 declare polyneg_polyneg [simp]
 
 lemma isnpolyh_polynate_id [simp]:
-  fixes p :: "'a::field poly"
+  fixes p :: "'a::field_char_0 poly"
   assumes np: "isnpolyh p n0"
   shows "polynate p = p"
   using isnpolyh_unique[OF polynate_norm[of p, unfolded isnpoly_def] np]
@@ -1327,9 +1327,9 @@ lemma isnpolyh_polynate_id [simp]:
   by simp
 
 lemma polynate_idempotent[simp]:
-  fixes p :: "'a::field poly"
+  fixes p :: "'a::field_char_0 poly"
   shows "polynate (polynate p) = polynate p"
-  using isnpolyh_polynate_id[OF polynate_norm[of p, unfolded isnpoly_def]] .*)
+  using isnpolyh_polynate_id[OF polynate_norm[of p, unfolded isnpoly_def]] .
 
 lemma poly_nate_polypoly': "poly_nate bs p = polypoly' bs (polynate p)"
   unfolding poly_nate_def polypoly'_def ..

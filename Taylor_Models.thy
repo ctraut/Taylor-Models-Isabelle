@@ -315,7 +315,7 @@ apply(induction n)
 using isDERIV_DERIV_floatarith assms
 by auto
 
-(* Faster derivation for univariate functions, producing smaller terms. *)
+(* Faster derivation for univariate functions, producing smaller terms and thus less over-approximation. *)
 (* TODO: Extend to Arctan, Exp, Log! *)
 fun deriv_0 :: "floatarith \<Rightarrow> nat \<Rightarrow> floatarith"
 where "deriv_0 (Cos (Var 0)) n = (case n mod 4
@@ -722,7 +722,7 @@ where "tm_add (TaylorModel p1 i1) (TaylorModel p2 i2) = TaylorModel (poly.Add p1
 fun tm_sub :: "taylor_model \<Rightarrow> taylor_model \<Rightarrow> taylor_model"
 where "tm_sub t1 t2 = tm_add t1 (tm_neg t2)"
 
-(* TODO: Currently, this increases the degree of the polynomial! *)
+(* Note: This increases the degree of the polynomial. tm_lower_order can be used to reduce it again. *)
 fun tm_mul :: "taylor_model \<Rightarrow> taylor_model \<Rightarrow> float interval list \<Rightarrow> float list \<Rightarrow> taylor_model"
 where "tm_mul (TaylorModel p1 i1) (TaylorModel p2 i2) I a = (
   let d1=compute_bound_poly p1 I a;
@@ -769,6 +769,19 @@ where "tm_min t1 t2 I a = tm_and t1 t2 I a"
   
 fun tm_max :: "taylor_model \<Rightarrow> taylor_model \<Rightarrow> float interval list \<Rightarrow> float list \<Rightarrow> taylor_model"
 where "tm_max t1 t2 I a = tm_and t1 t2 I a"
+
+(* Normalizes the taylor model by transforming its polynomial into horner form.  *)
+fun tm_norm_poly :: "taylor_model \<Rightarrow> taylor_model"
+where "tm_norm_poly (TaylorModel p e) = TaylorModel (polynate p) e"
+
+(* Reduces the degree of a taylor model's polynomial to n and keeps it valid by increasing the error bound. *)
+fun tm_lower_order_of_normed:: "taylor_model \<Rightarrow> nat \<Rightarrow> float interval list \<Rightarrow> float list \<Rightarrow> taylor_model"
+where "tm_lower_order_of_normed (TaylorModel p e) n I a = (
+         let (l, r) = split_by_degree n p
+         in TaylorModel l (e + compute_bound_poly r I a))"
+
+fun tm_lower_order :: "taylor_model \<Rightarrow> nat \<Rightarrow> float interval list \<Rightarrow> float list \<Rightarrow> taylor_model"
+where "tm_lower_order t n I a = tm_lower_order_of_normed (tm_norm_poly t) n I a"
 
 (* Validity of is preserved under taylor model arithmetic. *)
 lemma tm_neg_valid:
@@ -900,8 +913,7 @@ apply(drule tm_mul_valid[OF assms(1) _ assms(2)])
 by (simp add: func_times)
         
 lemma tm_comp_valid:
-(* TODO: Can I rewrite this assumption and make this simpler? *)
-assumes gI_def: "\<And>x. length x = length I \<Longrightarrow> (\<forall>n<length I. x!n \<in> set_of (I!n)) \<Longrightarrow> g x \<in> set_of gI"
+assumes gI_def: "\<And>x. x all_in I \<Longrightarrow> g x \<in> set_of gI"
 assumes t1_def: "valid_tm [gI] (\<lambda>x. f (x ! 0)) t1"
 assumes t2_def: "valid_tm I g t2"
 assumes "a all_in I"
@@ -1078,6 +1090,57 @@ proof-
   qed
 qed
 
+lemma tm_norm_poly_valid:
+assumes "valid_tm I f t"
+shows "valid_tm I f (tm_norm_poly t)"
+using assms
+apply(cases t)
+apply(simp)
+using num_params_polynate le_trans
+by blast
+
+lemma tm_lower_order_of_normed_valid:
+assumes "a all_in I"
+assumes "valid_tm I f t"
+shows "valid_tm I f (tm_lower_order_of_normed t n I a)"
+proof-
+  obtain p e where t_decomp: "t = TaylorModel p e"
+    by (cases t) simp
+  obtain pl pr where p_split: "split_by_degree n p = (pl, pr)"
+    by (cases "split_by_degree n p", simp)
+  
+  show ?thesis
+  proof(rule valid_tmI)
+    show "tm_lower_order_of_normed t n I a = TaylorModel pl (e + compute_bound_poly pr I a)"
+    by (simp add: t_decomp p_split)
+  next
+    show "num_params pl \<le> length I"
+      using split_by_degree_correct(3)[OF p_split[symmetric]]
+            valid_tmD'(1)[OF assms(2) t_decomp]
+            num_params_polynate
+      using le_trans by blast
+  next
+    fix x :: "real list" assume "x all_in I"
+    
+    have num_params_pr: "num_params pr \<le> length I"
+      using split_by_degree_correct(4)[OF p_split[symmetric]]
+            valid_tmD'(1)[OF assms(2) t_decomp]
+            num_params_polynate
+      using le_trans by blast
+    show "f x - Ipoly x pl \<in> set_of (e + compute_bound_poly pr I a)"
+      using set_of_add_mono[OF valid_tmD'(2)[OF assms(2) t_decomp `x all_in I`]
+                               compute_bound_poly_correct[OF num_params_pr `x all_in I` `a all_in I`]]
+      using split_by_degree_correct(2)[OF p_split[symmetric], of x]
+      by simp
+  qed
+qed
+
+lemma tm_lower_order_valid:
+assumes "a all_in I"
+assumes "valid_tm I f t"
+shows "valid_tm I f (tm_lower_order t n I a)"
+using assms tm_lower_order_of_normed_valid tm_norm_poly_valid
+by simp
 
 subsection \<open>Computing taylor models for multivariate expressions\<close>
 
@@ -1108,7 +1171,7 @@ where "compute_tm _ _ I _ (Num c) = Some (tm_const c)"
     | "compute_tm prec n I a (Minus f) = map_option (\<lambda>t. tm_neg t) (compute_tm prec n I a f)"
     | "compute_tm prec n I a (Mult l r) = (
          case (compute_tm prec n I a l, compute_tm prec n I a r) 
-         of (Some t1, Some t2) \<Rightarrow> Some (tm_mul t1 t2 I a)
+         of (Some t1, Some t2) \<Rightarrow> Some (tm_lower_order (tm_mul t1 t2 I a) n I a)
           | _ \<Rightarrow> None)"     
     | "compute_tm prec n I a (Power f k) = map_option (\<lambda>t. tm_pow t k I a) (compute_tm prec n I a f)"
     | "compute_tm prec n I a (Inverse f) = compute_tm_by_comp prec n I a (Inverse (Var 0)) (compute_tm prec n I a f) (\<lambda>x. 0 < lower x \<or> upper x < 0)"
@@ -1201,14 +1264,15 @@ next
     by (metis (no_types, lifting) Mult(4) compute_tm.simps(5) option.case_eq_if option.collapse prod.case)
   obtain t2 where t2_def: "Some t2 = compute_tm prec n I a r"
     by (smt Mult(4) compute_tm.simps(5) option.case_eq_if option.collapse prod.case)
-  have t_def: "t = tm_mul t1 t2 I a"
+  have t_def: "t = tm_lower_order (tm_mul t1 t2 I a) n I a"
     using Mult(4) t1_def t2_def
     by (metis compute_tm.simps(5) option.case(2) option.inject prod.case)
   
   have [simp]: "interpret_floatarith (floatarith.Mult l r) = interpret_floatarith l * interpret_floatarith r"
     by auto
   show "valid_tm I (interpret_floatarith (floatarith.Mult l r)) t"
-    apply(simp add: t_def)
+    apply(simp add: t_def del: tm_lower_order.simps)
+    apply(rule tm_lower_order_valid[OF `a all_in I`])
     apply(rule tm_mul_valid[OF Mult(1)[OF _ t1_def] Mult(2)[OF _ t2_def] `a all_in I`])
     using Mult(3) by auto
 next
@@ -1334,8 +1398,8 @@ qed (simp_all add: valid_tm_def)
 value "the (compute_tm 32 7 [Ivl 0 2] [1] (Num 2))"
 value "the (compute_tm 32 7 [Ivl 0 2] [1] (Var 0))"
 value "the (compute_tm 32 7 [Ivl 0 2, Ivl 0 2] [1,1] (Add (Var 0) (Var 1)))"
-value "the (compute_tm 32 10 [Ivl (-1) 1] [0] (Cos (Var 0)))"
-value "the (compute_tm 32 5 [Ivl (1) 3] [2] (Inverse (Var 0)))"
+value "tm_norm_poly (the (compute_tm 32 10 [Ivl (-1) 1] [0] (Cos (Var 0))))"
+value "let I = [Ivl 1 3]; a = [2] in case (the (compute_tm 32 10 I a (Inverse (Var 0)))) of TaylorModel p e \<Rightarrow> (tm_lower_order (TaylorModel p e) 5 I a)"
 
 
 subsection \<open>Computing bounds for floatarith expressions\<close>
