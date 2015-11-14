@@ -10,7 +10,7 @@ lemma of_nat_real_float_equiv: "(of_nat n :: real) = (of_nat n :: float)"
   by (induction n, simp_all add: of_nat_def)
 
 lemma fact_real_float_equiv: "(fact n :: float) = (fact n :: real)"
-  by (induction n, simp_all add: of_nat_real_float_equiv)
+  by (induction n) simp_all
 
 lemma Some_those_length:
 assumes "Some xs = those ys"
@@ -18,7 +18,7 @@ shows "length xs = length ys"
 using assms
 apply(induction ys arbitrary: xs)
 apply(simp)
-proof(goals)
+proof(goal_cases)
   case (1 a ys xs)
   show ?case
     apply(cases a)
@@ -42,7 +42,7 @@ proof-
   have "None \<in> set ys \<Longrightarrow> those ys = None"
     apply(induction ys)
     apply(simp)
-    proof(goals)
+    proof(goal_cases)
       case (1 a ys) thus ?case by (cases a, simp_all)
     qed
   hence "None \<notin> set ys"
@@ -53,7 +53,7 @@ proof-
     using assms
     apply(induction i arbitrary: y xs ys)
     apply(simp_all)
-    proof(goals)
+    proof(goal_cases)
       case (1 y xs ys)
       thus ?case
       apply(cases ys)

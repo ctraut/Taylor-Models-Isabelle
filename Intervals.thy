@@ -5,7 +5,7 @@ begin
 
 (* I define my own interval type here. I then define the basic arithmetic operations on the intervals. 
    This way, I can define and evaluate polynomials over the set of intervals. *)
-typedef 'a interval = "{(a::'a::order, b). a \<le> b}"
+typedef (overloaded) 'a interval = "{(a::'a::order, b). a \<le> b}"
   by auto
 
 setup_lifting type_definition_interval
@@ -76,7 +76,7 @@ by auto
 
 lemma upper_Ivl_upper_lower_real[simp]:
 fixes I::"float interval"
-shows "upper (Ivl (real (lower I)) (real (upper I))) = real (upper I)"
+shows "upper (Ivl (real_of_float (lower I)) (real_of_float(upper I))) = real_of_float (upper I)"
 using lower_le_upper less_eq_float.rep_eq upper_Ivl_b
 by blast
 
@@ -103,20 +103,20 @@ proof-
   obtain l u where i_def: "i = Ivl l u" and "l \<le> u" using interval_exhaust by blast
   
   {
-    have "real l * Float 1 1  \<le> (real l + real u)"
+    have "real_of_float l * Float 1 1  \<le> (real_of_float l + real_of_float u)"
       using `l \<le> u` by (simp add: Float.compute_float_one Float.compute_float_times)
-    hence "real l * (Float 1 1 * Float 1 (-1)) \<le> (real l + real u) * Float 1 (-1)"
+    hence "real_of_float l * (Float 1 1 * Float 1 (-1)) \<le> (real_of_float l + real_of_float u) * Float 1 (-1)"
       by simp 
-    hence "real l \<le> (real l + real u) * Float 1 (- 1)"
+    hence "real_of_float l \<le> (real_of_float l + real_of_float u) * Float 1 (- 1)"
       by (simp add: Float.compute_float_one Float.compute_float_times)
   }
   moreover
   {
-    have "(real l + real u) \<le> real u * Float 1 1 "
+    have "(real_of_float l + real_of_float u) \<le> real_of_float u * Float 1 1 "
       using `l \<le> u` by (simp add: Float.compute_float_one Float.compute_float_times)
-    hence "(real l + real u) * Float 1 (-1) \<le> real u * (Float 1 1 * Float 1 (-1))"
+    hence "(real_of_float l + real_of_float u) * Float 1 (-1) \<le> real_of_float u * (Float 1 1 * Float 1 (-1))"
       by simp
-    hence "(real l + real u) * Float 1 (- 1) \<le> real u"
+    hence "(real_of_float l + real_of_float u) * Float 1 (- 1) \<le> real_of_float u"
       by (simp add: Float.compute_float_one Float.compute_float_times)
   }
   ultimately show ?thesis
@@ -247,7 +247,7 @@ by assumption
 
 lemma [simp]:
 fixes A :: "float interval"
-shows "(real a \<in> set_of (interval_map real A)) = (a \<in> set_of A)"
+shows "(real_of_float a \<in> set_of (interval_map real_of_float A)) = (a \<in> set_of A)"
 by (cases A rule: interval_exhaust, simp add: set_of_def interval_map_def)
 
 (* Coercions on intervals. *)
@@ -260,33 +260,33 @@ declare [[coercion_map interval_map]]
 (* Coercion of a "float interval" to a "real interval" is homomorph. *)
 lemma interval_map_real_add[simp]:
 fixes i1::"float interval"
-shows "interval_map real (i1 + i2) = interval_map real i1 + interval_map real i2"
+shows "interval_map real_of_float (i1 + i2) = interval_map real_of_float i1 + interval_map real_of_float i2"
 by (cases i1 rule: interval_exhaust, cases i2 rule: interval_exhaust, simp add: plus_interval_def interval_map_def)
 
 lemma interval_map_real_sub[simp]:
 fixes i1::"float interval"
-shows "interval_map real (i1 - i2) = interval_map real i1 - interval_map real i2"
+shows "interval_map real_of_float (i1 - i2) = interval_map real_of_float i1 - interval_map real_of_float i2"
 by (cases i1 rule: interval_exhaust, cases i2 rule: interval_exhaust, simp add: minus_interval_def interval_map_def)
 
 lemma interval_map_real_neg[simp]:
 fixes i::"float interval"
-shows "interval_map real (-i) = - interval_map real i"
+shows "interval_map real_of_float (-i) = - interval_map real_of_float i"
 by (cases i rule: interval_exhaust, simp add: uminus_interval_def interval_map_def)
 
 lemma interval_map_real_mul[simp]:
 fixes i1::"float interval"
-shows "interval_map real (i1 * i2) = interval_map real i1 * interval_map real i2"
+shows "interval_map real_of_float (i1 * i2) = interval_map real_of_float i1 * interval_map real_of_float i2"
 by (cases i1 rule: interval_exhaust, cases i2 rule: interval_exhaust, simp add: times_interval_def real_of_float_max real_of_float_min interval_map_def)
 
 lemma interval_map_real_pow[simp]:
 fixes i::"float interval"
-shows "interval_map real (i ^ n) = interval_map real i ^  n"
+shows "interval_map real_of_float (i ^ n) = interval_map real_of_float i ^  n"
 apply(cases i rule: interval_exhaust, induction n)
 using interval_map_real_mul by (auto simp: one_interval_def interval_map_def)
 
 lemma interval_map_real_Ivl[simp]:
 fixes l::float and u::float
-shows "interval_map real (Ivl l u) = Ivl (real l) (real u)"
+shows "interval_map real_of_float (Ivl l u) = Ivl (real_of_float l) (real_of_float u)"
 apply(simp add: interval_map_def)
 by (metis interval_exhaust less_eq_float.rep_eq lower_Ivl max.cobounded2 max_def upper_Ivl_a upper_Ivl_b)
 
@@ -374,7 +374,7 @@ proof-
     apply(safe)
     apply(simp_all add: add_mono set_of_def)
     apply(safe)
-    proof(goals)
+    proof(goal_cases)
       case (1 x)
       def wa\<equiv>"ua - la"
       def wb\<equiv>"ub - lb"

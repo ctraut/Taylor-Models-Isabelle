@@ -26,10 +26,10 @@ value "Ipoly [Ivl (Float 4 (-6)) (Float 10 6)] (poly.Add (poly.C (Float 3 5)) (p
 (* Coercing a "float poly" into a "real poly" is a homomorphism. *)
 lemma poly_map_real_polyadd:
 fixes p1 p2 :: "float poly"
-shows "poly_map real (p1 +\<^sub>p p2) = poly_map real p1 +\<^sub>p poly_map real p2"
+shows "poly_map real_of_float (p1 +\<^sub>p p2) = poly_map real_of_float p1 +\<^sub>p poly_map real_of_float p2"
 apply(induction p1 arbitrary: p2)
 apply(simp_all)[7]
-proof(goals)
+proof(goal_cases)
   case (1 x p2)
     show ?case
       by(induction p2, simp_all add: real_of_float_eq)
@@ -39,13 +39,13 @@ next
     apply(induction p2)
     using 2
     apply(simp_all add: real_of_float_eq)[7]
-    proof(goals a)
+    proof(goal_cases a)
       case (a p5 n2 p6)
       show ?case
-      unfolding polyadd.simps(4) poly_map.simps if_distrib[of "poly_map real"]
+      unfolding polyadd.simps(4) poly_map.simps if_distrib[of "poly_map real_of_float"]
       apply(rule if_cong)
       apply(simp_all add: 2 a, safe)
-      unfolding Let_def if_distrib[of "poly_map real"]
+      unfolding Let_def if_distrib[of "poly_map real_of_float"]
       apply(rule if_cong)
       apply(cases "p4 +\<^sub>p p6")
       by (simp_all add: real_of_float_eq 2[symmetric])
@@ -54,20 +54,20 @@ qed
 
 lemma poly_map_real_polyneg:
 fixes p :: "float poly"
-shows "poly_map real (~\<^sub>pp) = ~\<^sub>p(poly_map real p)"
+shows "poly_map real_of_float (~\<^sub>pp) = ~\<^sub>p(poly_map real_of_float p)"
 by (induction p) simp_all
 
 lemma poly_map_real_polysub:
 fixes p1 p2 :: "float poly"
-shows "poly_map real (p1 -\<^sub>p p2) = poly_map real p1 -\<^sub>p poly_map real p2"
+shows "poly_map real_of_float (p1 -\<^sub>p p2) = poly_map real_of_float p1 -\<^sub>p poly_map real_of_float p2"
 by (simp add: polysub_def poly_map_real_polyadd poly_map_real_polyneg)
     
 lemma poly_map_real_polymul:
 fixes p1 p2 :: "float poly"
-shows "poly_map real (p1 *\<^sub>p p2) = poly_map real p1 *\<^sub>p poly_map real p2"
+shows "poly_map real_of_float (p1 *\<^sub>p p2) = poly_map real_of_float p1 *\<^sub>p poly_map real_of_float p2"
 apply(induction p1 arbitrary: p2)
 apply(simp_all)[7]
-proof(goals)
+proof(goal_cases)
   case (1 x p2)
     show ?case
       by(induction p2, simp_all add: real_of_float_eq)
@@ -77,10 +77,10 @@ next
     apply(induction p2)
     using 2
     apply(simp_all add: real_of_float_eq)[7]
-    proof(goals a)
+    proof(goal_cases a)
       case (a p5 n2 p6)
       show ?case
-      unfolding polymul.simps(4) poly_map.simps if_distrib[of "poly_map real"]
+      unfolding polymul.simps(4) poly_map.simps if_distrib[of "poly_map real_of_float"]
       apply(rule if_cong)
       apply(simp)
       apply(simp add: 2)
@@ -94,10 +94,10 @@ qed
 
 lemma poly_map_real_polypow:
 fixes p :: "float poly"
-shows "poly_map real (p^\<^sub>pn) = (poly_map real p)^\<^sub>pn"
+shows "poly_map real_of_float (p^\<^sub>pn) = (poly_map real_of_float p)^\<^sub>pn"
 proof(induction n rule: nat_less_induct)
-  fix n assume assm: "\<forall>m<n. poly_map real (p ^\<^sub>p m) = (poly_map real) p ^\<^sub>p m"
-  thus "poly_map real (p ^\<^sub>p n) = poly_map real p ^\<^sub>p n"
+  fix n assume assm: "\<forall>m<n. poly_map real_of_float (p ^\<^sub>p m) = (poly_map real_of_float) p ^\<^sub>p m"
+  thus "poly_map real_of_float (p ^\<^sub>p n) = poly_map real_of_float p ^\<^sub>p n"
     apply(cases n)
     apply(simp_all)
     by (smt Suc_less_eq div2_less_self even_Suc odd_Suc_div_two poly_map_real_polymul)
@@ -115,9 +115,9 @@ where "num_params (poly.C c) = 0"
     | "num_params (poly.Neg a)    = num_params a"
     | "num_params (poly.Pw a n)   = num_params a"
     | "num_params (poly.CN a n b) = max (max (num_params a) (num_params b)) (Suc n)"
-    
-lemma num_params_poly_map_real[simp]:
-shows "num_params (poly_map real p) = num_params p"
+
+lemma num_params_poly_map[simp]:
+shows "num_params (poly_map f p) = num_params p"
 by (induction p, simp_all)
 
 lemma num_params_polyadd:
@@ -219,7 +219,7 @@ qed simp_all
 
 lemma polynate_poly_map_real[simp]:
 fixes p :: "float poly"
-shows "poly_map real (polynate p) = polynate (poly_map real p)"
+shows "poly_map real_of_float (polynate p) = polynate (poly_map real_of_float p)"
 by (induction p) (simp_all add: poly_map_real_polyarith)
                                       
 (* Evaluating a float poly is equivalent to evaluating the corresponding
@@ -302,22 +302,22 @@ shows "Ipoly args p = Ipoly args l + Ipoly args r"
 using assms
 proof(induction p arbitrary: l r)
   case (Add p1 p2 l r)
-  thus ?case by (simp add: Add(1,2)[OF pair_collapse] split_beta)
+  thus ?case by (simp add: Add(1,2)[OF prod.collapse] split_beta)
 next
   case (Sub p1 p2 l r)
-  thus ?case by (simp add: Sub(1,2)[OF pair_collapse] split_beta)
+  thus ?case by (simp add: Sub(1,2)[OF prod.collapse] split_beta)
 next
   case (Mul p1 p2 l r)
-  thus ?case by (simp add: Mul(1,2)[OF pair_collapse] split_beta algebra_simps)
+  thus ?case by (simp add: Mul(1,2)[OF prod.collapse] split_beta algebra_simps)
 next
   case (Neg p l r) 
-  thus ?case by (simp add: Neg(1)[OF pair_collapse] split_beta)
+  thus ?case by (simp add: Neg(1)[OF prod.collapse] split_beta)
 next
   case (Pw p n l r)
-  thus ?case by (cases n) (simp_all add: Pw(1)[OF pair_collapse] split_beta)
+  thus ?case by (cases n) (simp_all add: Pw(1)[OF prod.collapse] split_beta)
 next
   case (CN c n p2)
-  thus ?case by (simp add: CN(1,2)[OF pair_collapse] split_beta algebra_simps)
+  thus ?case by (simp add: CN(1,2)[OF prod.collapse] split_beta algebra_simps)
 qed (simp_all add: Let_def)
 
 section \<open>Splitting polynomials by degree\<close>
@@ -350,71 +350,64 @@ shows "maxdegree l \<le> n" (is ?P1)
 and   "Ipoly x p = Ipoly x l + Ipoly x r" (is ?P2)
 and   "num_params l \<le> num_params p" (is ?P3)
 and   "num_params r \<le> num_params p" (is ?P4)
-proof-
-  have proposition: "?P1 \<and> ?P2 \<and> ?P3 \<and> ?P4"
+unfolding atomize_conj
   using assms
-  proof(induction p arbitrary: l r n)
-    case (C c l r n)
-    thus ?case by simp
+proof(induction p arbitrary: l r n)
+  case (C c l r n)
+  thus ?case by simp
+next
+  case (Bound v l r n)
+  thus ?case by (cases n) simp_all
+next
+  case (Add p1 p2 l r n)
+  thus ?case by (cases n) simp_all
+next
+  case (Sub p1 p2 l r n)
+  thus ?case by (cases n) simp_all
+next
+  case (Mul p1 p2 l r n)
+  thus ?case by (cases n) simp_all
+next
+  case (Neg p l r n)
+  thus ?case by (cases n) simp_all
+next
+  case (Pw p k l r n)
+  thus ?case by (cases n) simp_all
+next
+  case (CN c v p l r n)
+  show ?case
+  proof(cases n)
+    case 0
+    thus ?thesis using CN by simp
   next
-    case (Bound v l r n)
-    thus ?case by (cases n) simp_all
-  next
-    case (Add p1 p2 l r n)
-    thus ?case by (cases n) simp_all
-  next
-    case (Sub p1 p2 l r n)
-    thus ?case by (cases n) simp_all
-  next
-    case (Mul p1 p2 l r n)
-    thus ?case by (cases n) simp_all
-  next
-    case (Neg p l r n)
-    thus ?case by (cases n) simp_all
-  next
-    case (Pw p k l r n)
-    thus ?case by (cases n) simp_all
-  next
-    case (CN c v p l r n)
-    show ?case
-    proof(cases n)
-      case 0
-      thus ?thesis using CN by simp
-    next
-      case (Suc m)
-      obtain cl cr where cl_cr_def: "(cl, cr) = split_by_degree (Suc m) c"
-        by (cases "split_by_degree (Suc m) c", simp)
-      obtain pl pr where pl_pr_def: "(pl, pr) = split_by_degree m p"
-        by (cases "split_by_degree m p", simp)
-      have [simp]: "Ipoly x p = Ipoly x pl + Ipoly x pr"
-        using CN(2)[OF pl_pr_def]
-        by (cases n) simp_all
-      from CN(3)
-      have l_decomp: "l = CN cl v pl" and r_decomp: "r = CN cr v pr"
-        by (simp_all add: Suc cl_cr_def[symmetric] pl_pr_def[symmetric])
-      show ?thesis
-        apply(simp add: l_decomp, safe)
-        using CN(1)[OF cl_cr_def]
-        apply(simp add: Suc)
-        using CN(2)[OF pl_pr_def]
-        apply(simp add: Suc)
-        using pl_pr_def
-        apply(cases p)
-        apply(simp_all)
-        apply(simp_all add: l_decomp r_decomp CN(1)[OF cl_cr_def] algebra_simps)
-        apply(safe)
-        prefer 3
-        using CN(1)[OF cl_cr_def] 
-        apply(simp_all add: max.coboundedI1)[2]
-        using CN(2)[OF pl_pr_def]
-        by auto
-    qed
+    case (Suc m)
+    obtain cl cr where cl_cr_def: "(cl, cr) = split_by_degree (Suc m) c"
+      by (cases "split_by_degree (Suc m) c", simp)
+    obtain pl pr where pl_pr_def: "(pl, pr) = split_by_degree m p"
+      by (cases "split_by_degree m p", simp)
+    have [simp]: "Ipoly x p = Ipoly x pl + Ipoly x pr"
+      using CN(2)[OF pl_pr_def]
+      by (cases n) simp_all
+    from CN(3)
+    have l_decomp: "l = CN cl v pl" and r_decomp: "r = CN cr v pr"
+      by (simp_all add: Suc cl_cr_def[symmetric] pl_pr_def[symmetric])
+    show ?thesis
+      apply(simp add: l_decomp, safe)
+      using CN(1)[OF cl_cr_def]
+      apply(simp add: Suc)
+      using CN(2)[OF pl_pr_def]
+      apply(simp add: Suc)
+      using pl_pr_def
+      apply(cases p)
+      apply(simp_all)
+      apply(simp_all add: l_decomp r_decomp CN(1)[OF cl_cr_def] algebra_simps)
+      apply(safe)
+      prefer 3
+      using CN(1)[OF cl_cr_def] 
+      apply(simp_all add: max.coboundedI1)[2]
+      using CN(2)[OF pl_pr_def]
+      by auto
   qed
-  
-  show ?P1 using proposition by simp
-  show ?P2 using proposition by simp
-  show ?P3 using proposition by simp
-  show ?P4 using proposition by simp
 qed
 
 end

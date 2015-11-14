@@ -78,7 +78,7 @@ proof-
       
       show "(a ! n) \<le> i ! n"
         using concl by simp
-      show "i ! n \<le> real (b ! n)"
+      show "i ! n \<le> real_of_float (b ! n)"
         using concl by simp
     qed
   moreover have "Some (l, u) = approx prec f (map Some (zip a b))"
@@ -136,7 +136,7 @@ and   "\<And>x. x all_in I \<Longrightarrow> f x - Ipoly x (p::real poly) \<in> 
 proof-
   obtain p e where t_decomp: "t = TaylorModel p e" using taylor_model.exhaust by auto
   moreover have "num_params p \<le> length I"
-           and  "\<And>x. x all_in map (interval_map real) I \<Longrightarrow> f x - Ipoly x (poly_map real p) \<in> set_of (interval_map real e)"
+           and  "\<And>x. x all_in map (interval_map real_of_float) I \<Longrightarrow> f x - Ipoly x (poly_map real_of_float p) \<in> set_of (interval_map real_of_float e)"
     using assms
     by (auto simp: t_decomp)
   ultimately show ?thesis
@@ -163,7 +163,7 @@ assumes "I all_subset J"
 assumes "valid_tm J f t"
 shows "valid_tm I f t"
 proof-
-  from assms(1) have "(map (interval_map real) I) all_subset (map (interval_map real) J)"
+  from assms(1) have "(map (interval_map real_of_float) I) all_subset (map (interval_map real_of_float) J)"
     by (simp add: set_of_def interval_map_def)
   from all_subsetD[OF this] assms(2)
   show ?thesis 
@@ -187,12 +187,12 @@ lemma compute_bound_poly_correct:
 assumes "num_params p \<le> length I"
 assumes "x all_in I"
 assumes "a all_in I"
-shows "Ipoly x (poly_map real p) \<in> set_of (compute_bound_poly p I a)"
+shows "Ipoly x (poly_map real_of_float p) \<in> set_of (compute_bound_poly p I a)"
 proof-
-  have "Ipoly x (poly_map real p) \<in> set_of (Ipoly (map (interval_map real) I) (poly_map interval_of (poly_map real p)))"
+  have "Ipoly x (poly_map real_of_float p) \<in> set_of (Ipoly (map (interval_map real_of_float) I) (poly_map interval_of (poly_map real_of_float p)))"
     apply(rule Ipoly_interval_args_mono[OF assms(2)])
     using assms(1) by simp
-  also have "... = set_of (interval_map real (Ipoly I (poly_map interval_of p)))"
+  also have "... = set_of (interval_map real_of_float (Ipoly I (poly_map interval_of p)))"
     apply(rule arg_cong[where f=set_of])
     using assms(1)
     by (induction p, simp_all)
@@ -264,7 +264,7 @@ using assms by simp
 lemma tm_pi_valid:
 shows "valid_tm I (interpret_floatarith Pi) (tm_pi prec)"
 proof-
-  have "\<And>prec. real (lb_pi prec) \<le> real (ub_pi prec)"
+  have "\<And>prec. real_of_float (lb_pi prec) \<le> real_of_float (ub_pi prec)"
     using iffD1[OF atLeastAtMost_iff, OF pi_boundaries]
     using order_trans by auto
   then obtain ivl_pi where ivl_pi_def: "Some ivl_pi = compute_bound prec Pi []"
@@ -288,8 +288,8 @@ where "Sin a = Cos (Add a (Mult Pi (Num (Float (-1) (- 1)))))"
 fun deriv :: "nat \<Rightarrow> floatarith \<Rightarrow> nat \<Rightarrow> floatarith"
 where "deriv v f 0 = f"
     | "deriv v f (Suc n) = DERIV_floatarith v (deriv v f n)"
-    
-value "map_option (interval_map real) (compute_bound 16 (Cos (Var 0)) [Ivl (-1) 1])"
+
+value "map_option (interval_map real_of_float) (compute_bound 16 (Cos (Var 0)) [Ivl (-1) 1])"
 
 lemma isDERIV_DERIV_floatarith:
 assumes "isDERIV v f vs"
@@ -366,7 +366,7 @@ next
       apply(safe)
       using fact_real_float_equiv 
       apply simp_all
-      proof(goals)
+      proof(goal_cases)
         case (1 q)
         hence n_decomp: "n = (q-1) * 2 + 1"
           by simp
@@ -381,11 +381,11 @@ next
     using DERIV_inverse_fun[OF DERIV_pow[where n="Suc n"], where s=UNIV]
     apply(rule iffD1[OF DERIV_cong_ev[OF refl], rotated 2])
     using `t \<noteq> 0`
-    by simp_all
+    by (simp_all add: divide_simps)
   hence "((\<lambda>x. fact n * (-1::real)^n * inverse (x ^ Suc n)) has_real_derivative fact (Suc n) * (- 1) ^ Suc n / t ^ Suc (Suc n)) (at t)"
     apply(rule iffD1[OF DERIV_cong_ev, OF refl _ _ DERIV_cmult[where c="fact n * (-1::real)^n"], rotated 2])
     using `t \<noteq> 0`
-    by (simp_all add: field_simps distrib_left real_of_nat_def)
+    by (simp_all add: field_simps distrib_left)
   thus "((\<lambda>x. interpret_floatarith (deriv_0 (Inverse (Var 0)) n) [x]) has_real_derivative
          interpret_floatarith (deriv_0 (Inverse (Var 0)) (Suc n)) [t])
          (at t)"
@@ -414,7 +414,7 @@ where "tmf_cs' _ 0 I a f = []"
 fun tmf_cs :: "nat \<Rightarrow> nat \<Rightarrow> float interval \<Rightarrow> float \<Rightarrow> floatarith \<Rightarrow> float interval list option"
 where "tmf_cs prec n I a f = those (rev (tmf_c prec n I f # (tmf_cs' prec n I a f)))"
 
-value "map (interval_map real) (the (tmf_cs 32 10 (Ivl 0 2) 1 (Cos (Var 0))))"
+value "map (interval_map real_of_float) (the (tmf_cs 32 10 (Ivl 0 2) 1 (Cos (Var 0))))"
 
 lemma tmf_c_correct:
 fixes A::"float interval" and I::"float interval" and f::floatarith and a::real
@@ -522,14 +522,14 @@ proof-
           by (simp add: pf_decomp)
       qed
   next
-    fix xs assume hyp: "xs all_in map (interval_map real) [I]"
+    fix xs assume hyp: "xs all_in map (interval_map real_of_float) [I]"
     from hyp obtain x where xs_def: "xs = [x]" by (auto simp: length_Suc_conv)
     hence x_in_I: "x \<in> set_of I" using hyp by simp
     
-    show "interpret_floatarith f xs - Ipoly xs (poly_map real pf) \<in> set_of (Ipoly [I] pi)"
+    show "interpret_floatarith f xs - Ipoly xs (poly_map real_of_float pf) \<in> set_of (Ipoly [I] pi)"
     proof(cases "x = a")
       case True
-      have pf_val_at_a: "Ipoly [real a] (poly_map real pf) = mid (cs ! 0)"
+      have pf_val_at_a: "Ipoly [real_of_float a] (poly_map real_of_float pf) = mid (cs ! 0)"
         using pfpi_def tmf_cs_length[OF cs_def]
         apply(induction cs arbitrary: pf pi n)
         apply(simp)
@@ -544,11 +544,11 @@ proof-
             using Cons(1)[OF pf'pi'_def]
             by (simp add: pf_decomp)
         qed
-      have "interpret_floatarith f xs - Ipoly xs (poly_map real pf) \<in> set_of (interval_map real (cs ! 0) - (mid (cs ! 0)))"
+      have "interpret_floatarith f xs - Ipoly xs (poly_map real_of_float pf) \<in> set_of (interval_map real_of_float (cs ! 0) - (mid (cs ! 0)))"
         apply(rule set_of_minus_mono)
         using pf_val_at_a tmf_c_correct[OF _ tmf_cs_correct(1)[OF assms(2) cs_def assms(1)], of a]
         by (simp_all add: xs_def `x = a` set_of_def)
-      also have "... \<subseteq>  set_of (interval_map real (Ipoly [I] pi))"
+      also have "... \<subseteq>  set_of (interval_map real_of_float (Ipoly [I] pi))"
         proof-
           from tmf_cs_length[OF cs_def]
           obtain c cs' where cs_decomp: "cs = c # cs'" 
@@ -563,7 +563,7 @@ proof-
             apply(simp add: set_of_def[of "Ivl 0 0"] zero_interval_def)
             apply(rule set_of_mul_contains_zero)
             apply(rule disjI1)
-            by (simp add: assms(2) set_of_minus_mono[where a="real a" and b="real a", simplified])
+            by (simp add: assms(2) set_of_minus_mono[where a="real_of_float a" and b="real_of_float a", simplified])
         qed
       finally show ?thesis .
     next
@@ -571,10 +571,10 @@ proof-
       
       obtain l u where I_def: "I = Ivl l u" and l_le_u: "l \<le> u" by (metis interval_exhaust) 
       
-      have "\<exists>t. (if x < real a then x < t \<and> t < real a else real a < t \<and> t < x) \<and>
+      have "\<exists>t. (if x < real_of_float a then x < t \<and> t < real_of_float a else real_of_float a < t \<and> t < x) \<and>
                 interpret_floatarith f [x] =
-                  (\<Sum>m<n. interpret_floatarith (deriv_0 f m) [real a] / fact m * (x - real a) ^ m)
-                  + interpret_floatarith (deriv_0 f n) [t] / fact n * (x - real a) ^ n"
+                  (\<Sum>m<n. interpret_floatarith (deriv_0 f m) [real_of_float a] / fact m * (x - real_of_float a) ^ m)
+                  + interpret_floatarith (deriv_0 f n) [t] / fact n * (x - real_of_float a) ^ n"
         apply(rule taylor[where a=l and b=u])
         apply(rule `0 < n`)
         apply(simp)
@@ -584,11 +584,11 @@ proof-
         using assms(2) x_in_I `x \<noteq> a` l_le_u
         by (simp_all add: I_def set_of_def)
       then obtain t 
-      where "if x < real a then x < t \<and> t < real a else real a < t \<and> t < x"
+      where "if x < real_of_float a then x < t \<and> t < real_of_float a else real_of_float a < t \<and> t < x"
       and taylor_expansion:
         "interpret_floatarith f [x] = 
-           (\<Sum>m<n. interpret_floatarith (deriv_0 f m) [real a] / fact m * (x - real a) ^ m)
-           + interpret_floatarith (deriv_0 f n) [t] / fact n * (x - real a) ^ n"
+           (\<Sum>m<n. interpret_floatarith (deriv_0 f m) [real_of_float a] / fact m * (x - real_of_float a) ^ m)
+           + interpret_floatarith (deriv_0 f n) [t] / fact n * (x - real_of_float a) ^ n"
         by auto
       from this(1) have t_in_I: "t \<in> set_of I"
         using assms(2) x_in_I l_le_u
@@ -616,40 +616,40 @@ proof-
             proof-
               fix c' cs' assume cs_def: "cs = c' # cs'"
               
-              have "Ipoly xs (poly_map real pf) = real (mid c) + (x - real a) * Ipoly [x] (poly_map real pf')"
+              have "Ipoly xs (poly_map real_of_float pf) = real_of_float (mid c) + (x - real_of_float a) * Ipoly [x] (poly_map real_of_float pf')"
                 by (simp add: pf_def xs_def)
-              also have "... = real (mid c) + (x - real a) * (\<Sum>m<Suc (length cs'). real (mid (cs ! m)) * (x - real a) ^ m)"
+              also have "... = real_of_float (mid c) + (x - real_of_float a) * (\<Sum>m<Suc (length cs'). real_of_float (mid (cs ! m)) * (x - real_of_float a) ^ m)"
                 using Cons(1)[OF pf'pi'_def, where n="length cs'"]
                 by (simp add: cs_def xs_def)
-              also have "... = real (mid c) + (x - real a) * (\<Sum>m<length cs. real (mid ((c # cs) ! Suc m)) * (x - real a) ^ m)"
+              also have "... = real_of_float (mid c) + (x - real_of_float a) * (\<Sum>m<length cs. real_of_float (mid ((c # cs) ! Suc m)) * (x - real_of_float a) ^ m)"
                 by (simp add: cs_def)
-              also have "... = real (mid c) + (\<Sum>m<n. real (mid ((c # cs) ! Suc m)) * (x - real a) ^ Suc m)"
+              also have "... = real_of_float (mid c) + (\<Sum>m<n. real_of_float (mid ((c # cs) ! Suc m)) * (x - real_of_float a) ^ Suc m)"
                 by (simp add:  setsum_right_distrib linordered_field_class.sign_simps(25))
-              also have "... = real (mid c) + (\<Sum>m\<in>{1..n}. real (mid ((c # cs) ! m)) * (x - real a) ^ m)"
+              also have "... = real_of_float (mid c) + (\<Sum>m\<in>{1..n}. real_of_float (mid ((c # cs) ! m)) * (x - real_of_float a) ^ m)"
                 apply(subst setsum_shift_bounds_Suc_ivl[symmetric, of _ 0 "n", unfolded atLeast0LessThan])
                 unfolding atLeastLessThanSuc_atLeastAtMost
                 by simp
-              also have "... = (\<Sum>m\<in>{0..n}. real (mid ((c # cs) ! m)) * (x - real a) ^ m)"
-                using setsum_add_nat_ivl[where m=0 and n=1 and p="Suc n" and f="\<lambda>m. real (mid ((c # cs) ! m)) * (x - real a) ^ m", unfolded atLeastLessThanSuc_atLeastAtMost, simplified]
+              also have "... = (\<Sum>m\<in>{0..n}. real_of_float (mid ((c # cs) ! m)) * (x - real_of_float a) ^ m)"
+                using setsum_add_nat_ivl[where m=0 and n=1 and p="Suc n" and f="\<lambda>m. real_of_float (mid ((c # cs) ! m)) * (x - real_of_float a) ^ m", unfolded atLeastLessThanSuc_atLeastAtMost, simplified]
                 by simp
-              finally show "Ipoly xs (poly_map real pf) = (\<Sum>m<Suc n. real (mid ((c # cs) ! m)) * (x - real a) ^ m)"
+              finally show "Ipoly xs (poly_map real_of_float pf) = (\<Sum>m<Suc n. real_of_float (mid ((c # cs) ! m)) * (x - real_of_float a) ^ m)"
                 unfolding atLeast0AtMost lessThan_Suc_atMost
                 by simp
             qed
         qed
       
-      def cr\<equiv>"\<lambda>i. if i < n then (interpret_floatarith (deriv_0 f i) [real a] / fact i - real (mid (cs ! i)))
-                           else (interpret_floatarith (deriv_0 f i) [t] / fact n - real (mid (cs ! i)))"
-      def ci\<equiv>"\<lambda>i. (interval_map real (cs ! i) - interval_of (real (mid (cs ! i))))"
+      def cr\<equiv>"\<lambda>i. if i < n then (interpret_floatarith (deriv_0 f i) [real_of_float a] / fact i - real_of_float (mid (cs ! i)))
+                           else (interpret_floatarith (deriv_0 f i) [t] / fact n - real_of_float (mid (cs ! i)))"
+      def ci\<equiv>"\<lambda>i. (interval_map real_of_float (cs ! i) - interval_of (real_of_float (mid (cs ! i))))"
       
-      have "(\<Sum>m<n. interpret_floatarith (deriv_0 f m) [real a] / fact m * (x - real a) ^ m)
-                 + interpret_floatarith (deriv_0 f n) [t] / fact n * (x - real a) ^ n
-                 - Ipoly xs (poly_map real pf)
-                 = (\<Sum>m<n. cr m  * (x - real a) ^ m) + cr n * (x - real a) ^ n"
+      have "(\<Sum>m<n. interpret_floatarith (deriv_0 f m) [real_of_float a] / fact m * (x - real_of_float a) ^ m)
+                 + interpret_floatarith (deriv_0 f n) [t] / fact n * (x - real_of_float a) ^ n
+                 - Ipoly xs (poly_map real_of_float pf)
+                 = (\<Sum>m<n. cr m  * (x - real_of_float a) ^ m) + cr n * (x - real_of_float a) ^ n"
         by (simp add: Ipoly_pf_eq algebra_simps setsum.distrib[symmetric] cr_def)
-      also have "... = horner_eval cr (x - real a) (Suc n)"
+      also have "... = horner_eval cr (x - real_of_float a) (Suc n)"
         by (simp add: horner_eval_eq_setsum)
-      also have "... \<in> set_of (horner_eval ci (x - real a) (Suc n))"
+      also have "... \<in> set_of (horner_eval ci (x - real_of_float a) (Suc n))"
         apply(rule horner_eval_interval)
         apply(simp add: cr_def ci_def)
         apply(safe)[1]
@@ -658,7 +658,7 @@ proof-
         apply(rule set_of_minus_mono)
         using tmf_c_correct[OF t_in_I tmf_cs_correct(2)[OF assms(2) cs_def]]
         apply(simp_all)
-        proof(goals)
+        proof(goal_cases)
           case(1 i)
           hence "i = n" by simp
           thus ?case
@@ -666,7 +666,7 @@ proof-
             apply(rule set_of_minus_mono[OF 1(3)])
             by simp
         qed
-      also have "... \<subseteq> set_of (interval_map real (Ipoly [I] pi))"
+      also have "... \<subseteq> set_of (interval_map real_of_float (Ipoly [I] pi))"
         using ci_def pfpi_def tmf_cs_length[OF cs_def]
         proof(induction n arbitrary: cs pi pf ci)
           case (0 cs pi pf)
@@ -687,15 +687,15 @@ proof-
           from Suc(2) have pi_def: "pi = poly.Add (centered c)\<^sub>p (Mul (x_minus_a (Ivl a a)) pi')"
             by (simp add: cs_def pf'pi'_def[symmetric])
             
-          have "set_of (horner_eval (\<lambda>i. interval_map real (cs ! i) - interval_of (real (mid (cs ! i)))) (interval_of (x - real a)) (Suc (Suc n)))
-              = set_of (interval_map real (c) - interval_of (real (mid c))
-                        + interval_of (x - real a) * horner_eval (\<lambda>i. interval_map real (cs' !  i) - interval_of (real (mid (cs' ! i)))) (interval_of (x - real a)) (Suc n))"
+          have "set_of (horner_eval (\<lambda>i. interval_map real_of_float (cs ! i) - interval_of (real_of_float (mid (cs ! i)))) (interval_of (x - real_of_float a)) (Suc (Suc n)))
+              = set_of (interval_map real_of_float (c) - interval_of (real_of_float (mid c))
+                        + interval_of (x - real_of_float a) * horner_eval (\<lambda>i. interval_map real_of_float (cs' !  i) - interval_of (real_of_float (mid (cs' ! i)))) (interval_of (x - real_of_float a)) (Suc n))"
             by (simp add: cs_def)
-          also have "... \<subseteq> set_of (interval_map real (c) - interval_of (real (mid c)) + interval_of (x - real a) * interval_map real (Ipoly [I] pi'))"
+          also have "... \<subseteq> set_of (interval_map real_of_float (c) - interval_of (real_of_float (mid c)) + interval_of (x - real_of_float a) * interval_map real_of_float (Ipoly [I] pi'))"
             apply(rule set_of_add_inc_right)
             apply(rule set_of_mul_inc_right)
             by (rule Suc(1)[OF pf'pi'_def length_cs'])
-          also have "... \<subseteq> set_of (interval_map real (Ipoly [I] pi))"
+          also have "... \<subseteq> set_of (interval_map real_of_float (Ipoly [I] pi))"
             apply(simp add: pi_def)
             apply(rule set_of_add_inc_right)
             apply(rule set_of_mul_inc_left)
@@ -801,7 +801,7 @@ proof-
     apply(simp)
     proof-
       fix x::"real list" assume assms: "x all_in I"
-      show "(- f) x - Ipoly x (poly_map real (Neg p)) \<in> set_of (interval_map real (Ivl (- upper e) (- lower e)))"
+      show "(- f) x - Ipoly x (poly_map real_of_float (Neg p)) \<in> set_of (interval_map real_of_float (Ivl (- upper e) (- lower e)))"
         using t_def(3)[OF assms]
         by (simp add: set_of_def interval_map_def)
     qed
@@ -874,7 +874,7 @@ proof-
     apply(rule conjI[OF refl refl])
     defer
     using t1_def(3) t2_def(3)
-    proof(goals)
+    proof(goal_cases)
       case (1 x)
       
       obtain d1 :: real where d1_def: "d1 \<in> set_of i1" "f x - Ipoly x p1 = d1"
@@ -924,13 +924,13 @@ proof-
   
   from t1_def have t1_valid:
     "num_params pf \<le> 1"
-    "\<And>x::real list. x all_in I \<Longrightarrow> f (g x) - Ipoly [g x] (poly_map real pf) \<in> set_of ef"
+    "\<And>x::real list. x all_in I \<Longrightarrow> f (g x) - Ipoly [g x] (poly_map real_of_float pf) \<in> set_of ef"
       using gI_def
       by (simp_all add: t1_decomp, metis length_Cons list.size(3) nth_Cons_0)
       
   from t2_def have t2_valid:
     "num_params pg \<le> length I"
-    "\<And>x::real list. x all_in I \<Longrightarrow> g x - Ipoly x (poly_map real pg) \<in> set_of (interval_map real eg)"
+    "\<And>x::real list. x all_in I \<Longrightarrow> g x - Ipoly x (poly_map real_of_float pg) \<in> set_of (interval_map real_of_float eg)"
       by (auto simp: t2_decomp)
       
   obtain p' e' where p'e'_def: "TaylorModel p' e' = eval_poly_at_tm pf t2 I a"
@@ -966,16 +966,16 @@ proof-
      
   hence eval_poly_at_tm_valid:
     "num_params p' \<le> length I"
-    "\<forall>x. length x = length I \<and> (\<forall>n<length I. x ! n \<in> set_of (interval_map real (I ! n))) \<longrightarrow>
-         Ipoly [g x] (poly_map real pf) - Ipoly x (poly_map real p') \<in> set_of (interval_map real e')"
+    "\<forall>x. length x = length I \<and> (\<forall>n<length I. x ! n \<in> set_of (interval_map real_of_float (I ! n))) \<longrightarrow>
+         Ipoly [g x] (poly_map real_of_float pf) - Ipoly x (poly_map real_of_float p') \<in> set_of (interval_map real_of_float e')"
       by (auto simp: t1_decomp p'e'_def[symmetric])
   show ?thesis
     apply(simp add: t1_decomp p'e'_def[symmetric] del: all_in_def)
     apply(safe)
     apply(simp add: eval_poly_at_tm_valid(1))
-    proof(goals)
+    proof(goal_cases)
       case (1 x)
-      have "Ipoly [g x] (poly_map real pf) - Ipoly x (poly_map real p') \<in> set_of e'"
+      have "Ipoly [g x] (poly_map real_of_float pf) - Ipoly x (poly_map real_of_float p') \<in> set_of e'"
         using 1 eval_poly_at_tm_valid(2)
         by simp
       thus ?case
@@ -994,12 +994,12 @@ proof-
   def abs_bound\<equiv>"Ivl 0 (max \<bar>lower bound\<bar> \<bar>upper bound\<bar>)"
   have tm_abs_decomp: "tm_abs t I a =  TaylorModel (poly.C (mid abs_bound)) (centered abs_bound)"
     by (simp add: bound_def abs_bound_def Let_def)
-  have f_valid: "(\<And>x. x all_in map (interval_map real) I \<Longrightarrow> f x - Ipoly x (poly_map real p) \<in> set_of (interval_map real e))"
+  have f_valid: "(\<And>x. x all_in map (interval_map real_of_float) I \<Longrightarrow> f x - Ipoly x (poly_map real_of_float p) \<in> set_of (interval_map real_of_float e))"
     using assms(2) by simp
   show ?thesis
     apply(rule valid_tmI[OF tm_abs_decomp])
     apply(simp)
-    proof(goals)
+    proof(goal_cases)
       case (1 x)
       from f_valid[OF this] compute_bound_tm_correct[OF assms(2) this assms(1), unfolded t_def bound_def[symmetric]]
       show ?case
@@ -1196,7 +1196,7 @@ assumes "0 < n"
 assumes "a all_in I"
 assumes tx_valid: "valid_tm I (interpret_floatarith g) tg"
 assumes t_def: "Some t = compute_tm_by_comp prec n I a f (Some tg) c"
-assumes f_deriv: "\<And>x. x \<in> set_of (interval_map real (compute_bound_tm tg I a)) \<Longrightarrow> c (compute_bound_tm tg I a) \<Longrightarrow> isDERIV 0 f [x]"
+assumes f_deriv: "\<And>x. x \<in> set_of (interval_map real_of_float (compute_bound_tm tg I a)) \<Longrightarrow> c (compute_bound_tm tg I a) \<Longrightarrow> isDERIV 0 f [x]"
 shows "valid_tm I ((\<lambda>x. interpret_floatarith f [x]) o interpret_floatarith g) t"
 proof-
   from t_def
@@ -1289,7 +1289,7 @@ next
   case (Inverse f t)
   from Inverse(3) obtain tf where tf_def: "Some tf = compute_tm prec n I a f"
     by (simp, metis (no_types, lifting) option.case_eq_if option.collapse)
-  have "\<And>x. x \<in> set_of (interval_map real (compute_bound_tm tf I a)) \<Longrightarrow>
+  have "\<And>x. x \<in> set_of (interval_map real_of_float (compute_bound_tm tf I a)) \<Longrightarrow>
           0 < lower (compute_bound_tm tf I a) \<or> upper (compute_bound_tm tf I a) < 0 \<Longrightarrow>
           isDERIV 0 (Inverse (Var 0)) [x]"
     by (simp add: set_of_def interval_map_def, safe, simp_all)
@@ -1321,7 +1321,7 @@ next
   case (Ln f t)
   from Ln(3) obtain tf where tf_def: "Some tf = compute_tm prec n I a f"
     by (simp, metis (no_types, lifting) option.case_eq_if option.collapse)
-  have "\<And>x. x \<in> set_of (interval_map real (compute_bound_tm tf I a)) \<Longrightarrow>
+  have "\<And>x. x \<in> set_of (interval_map real_of_float (compute_bound_tm tf I a)) \<Longrightarrow>
           0 < lower (compute_bound_tm tf I a) \<Longrightarrow>
           isDERIV 0 (Ln (Var 0)) [x]"
     by (simp add: set_of_def interval_map_def)
@@ -1332,7 +1332,7 @@ next
   case (Sqrt f t)
   from Sqrt(3) obtain tf where tf_def: "Some tf = compute_tm prec n I a f"
     by (simp, metis (no_types, lifting) option.case_eq_if option.collapse)
-  have "\<And>x. x \<in> set_of (interval_map real (compute_bound_tm tf I a)) \<Longrightarrow>
+  have "\<And>x. x \<in> set_of (interval_map real_of_float (compute_bound_tm tf I a)) \<Longrightarrow>
           0 < lower (compute_bound_tm tf I a) \<Longrightarrow>
           isDERIV 0 (Sqrt (Var 0)) [x]"
     by (simp add: set_of_def interval_map_def)
@@ -1399,6 +1399,8 @@ value "the (compute_tm 32 7 [Ivl 0 2] [1] (Num 2))"
 value "the (compute_tm 32 7 [Ivl 0 2] [1] (Var 0))"
 value "the (compute_tm 32 7 [Ivl 0 2, Ivl 0 2] [1,1] (Add (Var 0) (Var 1)))"
 value "tm_norm_poly (the (compute_tm 32 10 [Ivl (-1) 1] [0] (Cos (Var 0))))"
+value [code] "tm_norm_poly (the (compute_tm 32 7 [Ivl (-1) 1, Ivl (-1) 1] [0, 0] (Add (Exp (Add (Var 0) (Var 1))) (Cos (Mult (Var 0) (Var 1))))))"
+
 value "let I = [Ivl 1 3]; a = [2] in case (the (compute_tm 32 10 I a (Inverse (Var 0)))) of TaylorModel p e \<Rightarrow> (tm_lower_order (TaylorModel p e) 5 I a)"
 
 
@@ -1408,9 +1410,9 @@ subsection \<open>Computing bounds for floatarith expressions\<close>
 fun compute_ivl_bound :: "nat \<Rightarrow> nat \<Rightarrow> float interval list \<Rightarrow> floatarith \<Rightarrow> float interval option"
 where "compute_ivl_bound prec n I f = (case compute_tm prec n I (map mid I) f of None \<Rightarrow> None | Some t \<Rightarrow> Some (compute_bound_tm t I (map mid I)))"
 
-value "map_option (interval_map real) (compute_ivl_bound 32 10 [Ivl (-1) 1] (Power (Cos (Var 0)) 2))"
-value "map_option (interval_map real) (compute_ivl_bound 32 10 [Ivl (1) 2] (Inverse (Add (Cos (Var 0)) (Num 2))))"
-value "map_option (interval_map real) (compute_ivl_bound 32 10 [Ivl (1) 2] (Inverse (Var 0)))"
+value "map_option (interval_map real_of_float) (compute_ivl_bound 32 10 [Ivl (-1) 1] (Power (Cos (Var 0)) 2))"
+value "map_option (interval_map real_of_float) (compute_ivl_bound 32 10 [Ivl (1) 2] (Inverse (Add (Cos (Var 0)) (Num 2))))"
+value "map_option (interval_map real_of_float) (compute_ivl_bound 32 10 [Ivl (1) 2] (Inverse (Var 0)))"
 
 (* Automatically computed bounds are correct. *)
 lemma compute_ivl_bound_correct:

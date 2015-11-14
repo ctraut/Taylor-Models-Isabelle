@@ -75,7 +75,7 @@ proof-
       using assms
       apply(induction n arbitrary: v V)
       apply(simp)
-      proof(goals Suc)
+      proof(goal_cases Suc)
         case (Suc n v V)
         show ?case
           apply(simp, rule Suc(1)[OF set_of_add_mono[OF _ set_of_mult_mono]])
