@@ -1431,4 +1431,6 @@ proof-
     by (simp add: B_def)
 qed
 
+ML \<open>Reification.conv @{context} @{thms interpret_form_equations} @{cterm "pi * sin y + exp' x::real"}\<close>
+
 end
