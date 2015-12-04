@@ -3,8 +3,8 @@ imports "~~/src/HOL/Library/Float"
         "~~/src/HOL/Library/Set_Algebras"
 begin
 
-(* I define my own interval type here. I then define the basic arithmetic operations on the intervals. 
-   This way, I can define and evaluate polynomials over the set of intervals. *)
+(* I define my own interval type here. I then define the basic arithmetic operations on intervals. 
+   This way, I can define and evaluate interval polynomials. *)
 typedef (overloaded) 'a interval = "{(a::'a::order, b). a \<le> b}"
   by auto
 
@@ -19,6 +19,9 @@ is Rep_interval .
   
 lift_definition lower::"('a::order) interval \<Rightarrow> 'a" is fst .
 lift_definition upper::"('a::order) interval \<Rightarrow> 'a" is snd .
+
+definition width :: "'a::{order,minus} interval \<Rightarrow> 'a"
+where "width i = upper i - lower i"
 
 definition mid :: "float interval \<Rightarrow> float"
 where "mid i = (lower i + upper i) * Float 1 (-1)"
@@ -214,10 +217,8 @@ begin
   qed
 end
 
-definition centered :: "float interval \<Rightarrow> float interval"
+fun centered :: "float interval \<Rightarrow> float interval"
 where "centered i = i - interval_of (mid i)"
-
-lemmas [simp] = centered_def
 
 lemma interval_mul_commute:
 fixes A :: "'a::linordered_idom interval"

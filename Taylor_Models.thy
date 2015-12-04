@@ -730,7 +730,7 @@ where "tm_mul (TaylorModel p1 i1) (TaylorModel p2 i2) I a = (
   in TaylorModel (poly.Mul p1 p2) (i1*d2 + d1*i2 + i1*i2))"
   
 fun tm_pow :: "taylor_model \<Rightarrow> nat \<Rightarrow> float interval list \<Rightarrow> float list \<Rightarrow> taylor_model"
-where "tm_pow t 0 I a = TaylorModel (poly.C 1) (Ivl 0 0)"
+where "tm_pow t 0 I a = tm_const 1"
     | "tm_pow t (Suc n) I a = tm_mul t (tm_pow t n I a) I a"
 
 fun tm_inc_error :: "taylor_model \<Rightarrow> float interval \<Rightarrow> taylor_model"
@@ -739,20 +739,20 @@ where "tm_inc_error (TaylorModel p e) i = TaylorModel p (e+i)"
 (* Evaluates a float polynomial, using a taylor model as the parameter. This is used to compose taylor models. *)
 fun eval_poly_at_tm :: "float poly \<Rightarrow> taylor_model \<Rightarrow> float interval list \<Rightarrow> float list \<Rightarrow> taylor_model"
 where "eval_poly_at_tm (poly.C c) t I a = tm_const c"
-    | "eval_poly_at_tm (poly.Bound n) t I a = (if n = 0 then t else undefined)"
+    | "eval_poly_at_tm (poly.Bound n) t I a = t"
     | "eval_poly_at_tm (poly.Add p1 p2) t I a = tm_add (eval_poly_at_tm p1 t I a) (eval_poly_at_tm p2 t I a)"
     | "eval_poly_at_tm (poly.Sub p1 p2) t I a = tm_sub (eval_poly_at_tm p1 t I a) (eval_poly_at_tm p2 t I a)"
     | "eval_poly_at_tm (poly.Mul p1 p2) t I a = tm_mul (eval_poly_at_tm p1 t I a) (eval_poly_at_tm p2 t I a) I a"
     | "eval_poly_at_tm (poly.Neg p) t I a = tm_neg (eval_poly_at_tm p t I a)"
     | "eval_poly_at_tm (poly.Pw p n) t I a = tm_pow (eval_poly_at_tm p t I a) n I a"
-    | "eval_poly_at_tm (poly.CN c n p) t I a = tm_add (eval_poly_at_tm c t I a) (tm_mul (if n = 0 then t else undefined) (eval_poly_at_tm p t I a) I a)"
+    | "eval_poly_at_tm (poly.CN c n p) t I a = tm_add (eval_poly_at_tm c t I a) (tm_mul t (eval_poly_at_tm p t I a) I a)"
 
 fun tm_comp :: "taylor_model \<Rightarrow> taylor_model \<Rightarrow> float interval list \<Rightarrow> float list \<Rightarrow> taylor_model"
 where "tm_comp (TaylorModel p e) t I a = tm_inc_error (eval_poly_at_tm p t I a) e"
 
 (* tm_abs, tm_min and tm_max are implemented extremely naively, because I don't expect them to be very useful.
-   The implementation is fairly modular, i.e. tm_{abs,min,max} all can easily be swapped out if the corresponding 
-   correctness lemmas tm_{abs,min,max}_valid are updated as well. *)
+   But the implementation is fairly modular, i.e. tm_{abs,min,max} all can easily be swapped out,
+   as long as the corresponding correctness lemmas tm_{abs,min,max}_valid are updated as well. *)
 fun tm_abs :: "taylor_model \<Rightarrow> float interval list \<Rightarrow> float list \<Rightarrow> taylor_model"
 where "tm_abs t I a = (
   let bound=compute_bound_tm t I a; abs_bound=Ivl (0::float) (max (abs (lower bound)) (abs (upper bound)))
@@ -775,13 +775,15 @@ fun tm_norm_poly :: "taylor_model \<Rightarrow> taylor_model"
 where "tm_norm_poly (TaylorModel p e) = TaylorModel (polynate p) e"
 
 (* Reduces the degree of a taylor model's polynomial to n and keeps it valid by increasing the error bound. *)
-fun tm_lower_order_of_normed:: "taylor_model \<Rightarrow> nat \<Rightarrow> float interval list \<Rightarrow> float list \<Rightarrow> taylor_model"
-where "tm_lower_order_of_normed (TaylorModel p e) n I a = (
+fun tm_lower_order tm_lower_order_of_normed :: "taylor_model \<Rightarrow> nat \<Rightarrow> float interval list \<Rightarrow> float list \<Rightarrow> taylor_model"
+where "tm_lower_order t n I a = tm_lower_order_of_normed (tm_norm_poly t) n I a"
+   |  "tm_lower_order_of_normed (TaylorModel p e) n I a = (
          let (l, r) = split_by_degree n p
          in TaylorModel l (e + compute_bound_poly r I a))"
 
-fun tm_lower_order :: "taylor_model \<Rightarrow> nat \<Rightarrow> float interval list \<Rightarrow> float list \<Rightarrow> taylor_model"
-where "tm_lower_order t n I a = tm_lower_order_of_normed (tm_norm_poly t) n I a"
+(* Translates a taylor model, i.e. its now valid on I+v instead of I. *)
+fun tm_translate :: "float list \<Rightarrow> taylor_model \<Rightarrow> taylor_model"
+where "tm_translate v (TaylorModel p e) = TaylorModel (poly_translate v p) e"
 
 (* Validity of is preserved under taylor model arithmetic. *)
 lemma tm_neg_valid:
@@ -1141,6 +1143,39 @@ assumes "valid_tm I f t"
 shows "valid_tm I f (tm_lower_order t n I a)"
 using assms tm_lower_order_of_normed_valid tm_norm_poly_valid
 by simp
+
+lemma tm_translate_correct:
+assumes t_decomp: "t = TaylorModel p e"
+assumes [simp]: "length I = length v"
+assumes valid_t: "valid_tm (list_op (\<lambda>i v. i + interval_of v) I v) f t"
+shows "valid_tm I (\<lambda>x. f (list_op op+ x v)) (tm_translate v t)"
+proof-
+  have [simp]: "num_params p \<le> length v"
+    using \<open>length I = length v\<close> valid_t
+    by (simp add: t_decomp)
+
+  show ?thesis
+    proof(rule valid_tmI)
+      show "tm_translate v t = TaylorModel (poly_translate v p) e"
+        using assms by simp
+    next
+      show "num_params (poly_translate v p) \<le> length I"
+       by simp
+    next
+      fix x :: "real list" assume "x all_in I"
+      hence [simp]: "length x = length I"
+        by simp
+      
+      show "f (list_op op + x v) - Ipoly x (poly_translate v p) \<in> set_of (e::real interval)"
+        apply(subst real_poly_translate)
+        apply(simp)
+        apply(subst poly_translate_correct)
+        apply(simp_all)
+        apply(rule valid_tmD'(2)[OF valid_t t_decomp])
+        using \<open>x all_in I\<close> set_of_add_distrib by fastforce
+    qed
+qed
+
 
 subsection \<open>Computing taylor models for multivariate expressions\<close>
 

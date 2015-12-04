@@ -410,4 +410,106 @@ next
   qed
 qed
 
+(* Operations on lists. *)
+fun list_op :: "('a \<Rightarrow> 'b \<Rightarrow> 'c) \<Rightarrow> 'a list \<Rightarrow> 'b list \<Rightarrow> 'c list"
+where "list_op f [] _ = []"
+    | "list_op f _ [] = []"
+    | "list_op f (l#ls) (r#rs) = (f l r) # list_op f ls rs"
+    
+lemma list_op_length[simp]:
+shows "length (list_op f a b) = min (length a) (length b)"
+using assms
+proof(induction "list_op f a b" arbitrary: a b)
+  case (Nil a b)
+  hence "a = [] | b = []"
+    by(cases a, simp, cases b, simp_all)
+  thus ?case
+    by (safe, simp_all, cases a, simp_all)
+next
+  case (Cons x c a b)
+  have "0 < length a \<and> 0 < length b"
+    using Cons(2)
+    by (cases a, simp, cases b, simp_all)
+  then obtain xa ar xb br
+  where a_decomp[simp]: "a = xa # ar"
+  and   b_decomp[simp]: "b = xb # br"
+    by (cases a, simp_all, cases b, simp_all)
+
+  show ?case
+    using Cons
+    by simp
+qed
+
+lemma list_op_nth[simp]:
+assumes "n < min (length a) (length b)"
+assumes "n < length b"
+shows "(list_op f a b)!n = f (a!n) (b!n)"
+using assms
+proof(induction n arbitrary: a b)
+  case (0 a b)
+  have "0 < length a" and "0 < length b"
+    using 0
+    by simp_all
+  thus ?case
+    using 0
+    by (simp, smt list.exhaust list_op.simps(3) nth_Cons_0)
+next
+  case (Suc n a b)
+  have "0 < length a" and "0 < length b"
+    using Suc(2, 3)
+    by auto
+  thus ?case
+    using Suc
+    apply(simp, safe)
+    (* TODO: Clean this up. *)
+    proof -
+      assume a1: "\<And>a b. \<lbrakk>n < length a; n < length b\<rbrakk> \<Longrightarrow> list_op f a b ! n = f (a ! n) (b ! n)"
+      assume a2: "Suc n < length b"
+      assume a3: "Suc n < length a"
+      have f4: "b = b ! 0 # drop (Suc 0) b"
+        by (metis (no_types) \<open>0 < length b\<close> append.simps(1) id_take_nth_drop take_0)
+      hence f5: "Suc (length (drop (Suc 0) b) + 0) = length b"
+        by (metis (no_types) add_Suc_right list.size(4))
+      have f6: "a = a ! 0 # drop (Suc 0) a"
+        by (metis (no_types) \<open>0 < length a\<close> append.simps(1) id_take_nth_drop take_0)
+      hence f7: "Suc (length (drop (Suc 0) a) + 0) = length a"
+        by (metis (no_types) add_Suc_right list.size(4))
+      have f8: "n < length (drop (Suc 0) b)"
+        using f5 a2 by linarith
+      have "n < length (drop (Suc 0) a)"
+        using f7 a3 by linarith
+      thus ?thesis
+        using f8 f6 f4 a1 by (metis (no_types) list_op.simps(3) nth_Cons_Suc)
+    qed
+qed
+
+(* Translating a polynomial by a vector. *)
+fun poly_translate :: "'a list \<Rightarrow> 'a poly \<Rightarrow> 'a poly"
+where "poly_translate vs (poly.C c)  = poly.C c"
+    | "poly_translate vs (poly.Bound n) = poly.Add (poly.Bound n) (poly.C (vs ! n))"
+    | "poly_translate vs (poly.Add l r) = poly.Add (poly_translate vs l) (poly_translate vs r)"
+    | "poly_translate vs (poly.Sub l r) = poly.Sub (poly_translate vs l) (poly_translate vs r)"
+    | "poly_translate vs (poly.Mul l r) = poly.Mul (poly_translate vs l) (poly_translate vs r)"
+    | "poly_translate vs (poly.Neg p) = poly.Neg (poly_translate vs p)"
+    | "poly_translate vs (poly.Pw p n) = poly.Pw (poly_translate vs p) n"
+    | "poly_translate vs (poly.CN c n p) = poly.Add (poly_translate vs c) (poly.Mul (poly.Add (poly.Bound n) (poly.C (vs ! n))) (poly_translate vs p))"
+
+(* Translating a polynomial is equivalent to translating its argument. *)
+lemma poly_translate_correct:
+assumes "num_params p \<le> length x"
+assumes "length x = length v"
+shows "Ipoly x (poly_translate v p) = Ipoly (list_op op+ x v) p"
+using assms
+by (induction p, simp_all)
+
+lemma real_poly_translate: 
+assumes "num_params p \<le> length v"
+shows "Ipoly x (poly_map real_of_float (poly_translate v p)) = Ipoly x (poly_translate v (poly_map real_of_float p))"
+using assms
+by (induction p, simp_all)
+
+lemma num_params_poly_translate[simp]:
+shows "num_params (poly_translate v p) = num_params p"
+by (induction p, simp_all)
+
 end

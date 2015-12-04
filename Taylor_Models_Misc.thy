@@ -2,6 +2,7 @@ theory Taylor_Models_Misc
 imports "~~/src/HOL/Library/Float"
         "~~/src/HOL/Library/Function_Algebras"
         "~~/src/HOL/Decision_Procs/Approximation"
+        "Poly_Ex"
 begin
 
 (* This theory contains anything that doesn't belong anywhere else. *)
@@ -91,5 +92,31 @@ where "num_vars (Add a b) = max (num_vars a) (num_vars b)"
     | "num_vars (Power a n) = num_vars a"
     | "num_vars (Num _) = 0"
     | "num_vars Pi = 0"
+
+(* Translate floatarith expressions by a vector of floats.*)
+fun fa_translate :: "float list \<Rightarrow> floatarith \<Rightarrow> floatarith"
+where "fa_translate v (Add a b) = Add (fa_translate v a) (fa_translate v b)"
+    | "fa_translate v (Minus a) = Minus (fa_translate v a)"
+    | "fa_translate v (Mult a b) = Mult (fa_translate v a) (fa_translate v b)"
+    | "fa_translate v (Inverse a) = Inverse (fa_translate v a)"
+    | "fa_translate v (Cos a) = Cos (fa_translate v a)"
+    | "fa_translate v (Arctan a) = Arctan (fa_translate v a)"
+    | "fa_translate v (Min a b) = Min (fa_translate v a) (fa_translate v b)"
+    | "fa_translate v (Max a b) = Max (fa_translate v a) (fa_translate v b)"
+    | "fa_translate v (Abs a) = Abs (fa_translate v a)"
+    | "fa_translate v (Sqrt a) = Sqrt (fa_translate v a)"
+    | "fa_translate v (Exp a) = Exp (fa_translate v a)"
+    | "fa_translate v (Ln a) = Ln (fa_translate v a)"
+    | "fa_translate v (Var n) = Add (Var n) (Num (v!n))"
+    | "fa_translate v (Power a n) = Power (fa_translate v a) n"
+    | "fa_translate v (Num c) = Num c"
+    | "fa_translate v Pi = Pi"
+
+lemma fa_translate_correct:
+assumes "num_vars f \<le> length I"
+assumes "length v = length I"
+shows "interpret_floatarith (fa_translate v f) I = interpret_floatarith f (list_op op+ I v)"
+using assms
+by (induction f, simp_all)
 
 end
