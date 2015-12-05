@@ -626,29 +626,30 @@ apply(metis linear max.coboundedI1 max.coboundedI2 mult_nonneg_nonneg mult_nonpo
 done
 
 (* Subdivisions on intervals and interval vectors. *)
-fun split_interval :: "nat \<Rightarrow> float interval \<Rightarrow> float interval list"
-where "split_interval 0 I = [I]"
-    | "split_interval (Suc n) I = (
+fun subdivide_interval :: "nat \<Rightarrow> float interval \<Rightarrow> float interval list"
+where "subdivide_interval 0 I = [I]"
+    | "subdivide_interval (Suc n) I = (
          let m = mid I
-         in (split_interval n (Ivl (lower I) m)) @ (split_interval n (Ivl m (upper I)))
+         in (subdivide_interval n (Ivl (lower I) m)) @ (subdivide_interval n (Ivl m (upper I)))
        )"
 
-fun split_domain :: "(float interval \<Rightarrow> float interval list) \<Rightarrow> float interval list \<Rightarrow> float interval list list"
-where "split_domain split [] = [[]]"
-    | "split_domain split (I#Is) = (
-         let S = split I;
-             D = split_domain split Is
+fun split_domain :: "(float interval \<Rightarrow> float \<Rightarrow> float interval list) \<Rightarrow> float interval list \<Rightarrow> float list \<Rightarrow> float interval list list"
+where "split_domain split [] a = [[]]"
+    | "split_domain split _ [] = [[]]"
+    | "split_domain split (I#Is) (a#as) = (
+         let S = split I a;
+             D = split_domain split Is as
          in concat (map (\<lambda>d. map (\<lambda>s. s # d) S) D)
        )"
 
-lemma split_interval_length:
-shows "length (split_interval n I) = 2^n"
+lemma subdivide_interval_length:
+shows "length (subdivide_interval n I) = 2^n"
 by(induction n arbitrary: I, simp_all add: Let_def)
 
-lemma split_interval_correct:
+lemma subdivide_interval_correct:
 fixes x :: real
 assumes "x \<in> set_of I"
-shows "list_ex (\<lambda>i. x \<in> set_of i) (split_interval n I)"
+shows "list_ex (\<lambda>i. x \<in> set_of i) (subdivide_interval n I)"
 using assms
 apply(induction n arbitrary: x I)
 apply(simp_all add: Let_def  list_ex_iff)
@@ -658,29 +659,30 @@ by (metis UnCI atLeastAtMost_iff interval_map_def le_cases lower_Ivl mid_in_inte
 lemma split_domain_correct:
 fixes x :: "real list"
 assumes "x all_in I"
-assumes split_correct: "\<And>(x::real) I. x \<in> set_of I \<Longrightarrow> list_ex (\<lambda>i::float interval. x \<in> set_of i) (split I)"
-shows "list_ex (\<lambda>s. x all_in s) (split_domain split I)"
-using assms(1)
-proof(induction I arbitrary: x)
-  case (Cons I Is x)
+assumes "a all_in I"
+assumes split_correct: "\<And>(x::real) (a::float) I. x \<in> set_of I \<Longrightarrow> a \<in> set_of I \<Longrightarrow> list_ex (\<lambda>i::float interval. x \<in> set_of i) (split I a)"
+shows "list_ex (\<lambda>s. x all_in s) (split_domain split I a)"
+using assms(1,2)
+proof(induction I arbitrary: x a)
+  case (Cons I Is x a)
+  have "x \<noteq> []" "a \<noteq> []"
+    using Cons(2,3) by auto
+  obtain x' xs where x_decomp: "x = x' # xs"
+    using \<open>x \<noteq> []\<close> list.exhaust by auto
+  hence "x' \<in> set_of I" "xs all_in Is"
+    using Cons(2)
+    by auto
+  obtain a' as where a_decomp: "a = a' # as"
+    using \<open>a \<noteq> []\<close> list.exhaust by auto
+  hence "a' \<in> set_of I" "as all_in Is"
+    using Cons(3)
+    by auto
   show ?case
-  proof(cases x)
-    assume "x = []"
-    thus ?thesis using Cons by simp
-  next
-    fix h xs
-    assume x_decomp: "x = h # xs"
-    hence "h \<in> set_of I" "xs all_in Is"
-      using Cons(2)
-      by auto
-    
-    show ?thesis
-      unfolding split_domain.simps
-      using Cons(1)[OF \<open>xs all_in Is\<close>]
-            split_correct[OF \<open>h \<in> set_of I\<close>]
-      apply(simp add: Let_def list_ex_iff set_of_def)
-      by (smt length_Cons less_Suc_eq_0_disj nth_Cons_0 nth_Cons_Suc x_decomp)
-  qed
+    unfolding split_domain.simps a_decomp
+    using Cons(1)[OF \<open>xs all_in Is\<close> \<open>as all_in Is\<close>]
+          split_correct[OF \<open>x' \<in> set_of I\<close> \<open>a' \<in> set_of I\<close>]
+    apply(simp add: Let_def list_ex_iff set_of_def)
+    by (smt length_Cons less_Suc_eq_0_disj nth_Cons_0 nth_Cons_Suc x_decomp)
 qed simp
 
 lemma interval_list_union_correct:

@@ -163,13 +163,14 @@ qed
 
 subsection \<open>Interval bounds for taylor models\<close>
 
-(* Bound a polynomial by simply evaluating it with interval arguments.
-   TODO: This naive approach introduces significant over-approximation. *)
+(* Bound a polynomial by simply evaluating it with interval arguments. *)
 fun compute_bound_poly :: "float poly \<Rightarrow> float interval list \<Rightarrow> float list \<Rightarrow> float interval"
 where "compute_bound_poly p I a = (
-  (*interval_union (Ipoly (map (\<lambda>(i, a). Ivl (lower i) a) (zip I a)) p) (Ipoly (map (\<lambda>(i, a). Ivl a (upper i)) (zip I a)) p)*)
-  Ipoly I p
-)"
+         Ipoly I p
+         (*let Ds = split_domain (\<lambda>x a. [Ivl (lower x) a, Ivl a (upper x)]) I a;
+             S = map (\<lambda>d. Ipoly d (p :: float interval poly)) Ds
+         in interval_list_union S*)
+       )"
 
 fun compute_bound_tm :: "taylor_model \<Rightarrow> float interval list \<Rightarrow> float list \<Rightarrow> float interval"
 where "compute_bound_tm (TaylorModel p e) I a = compute_bound_poly p I a + e"
@@ -1511,14 +1512,17 @@ subsection \<open>Computing bounds for floatarith expressions\<close>
 
 (* Automatically find interval bounds for floatarith expressions. *)
 fun compute_ivl_bound :: "nat \<Rightarrow> nat \<Rightarrow> float interval list \<Rightarrow> floatarith \<Rightarrow> float interval option"
-where "compute_ivl_bound prec n I f = (case compute_tm prec n I (map mid I) f of None \<Rightarrow> None | Some t \<Rightarrow> Some (compute_bound_tm t I (map mid I)))"
+where "compute_ivl_bound prec n I f = (
+         map_option (\<lambda>t. compute_bound_tm t I (map mid I)) (compute_tm prec n I (map mid I) f)
+       )"
 
 (* Compute bounds using plain interval arithmetic by subdivision. *)
 fun compute_ivl_bound_naive :: "nat \<Rightarrow> nat \<Rightarrow> float interval list \<Rightarrow> floatarith \<Rightarrow> float interval option"
 where "compute_ivl_bound_naive prec n I f = (
-         let Ds = split_domain (split_interval n) I;
+         let Ds = split_domain (\<lambda>x a. subdivide_interval n x) I (map mid I);
              S = those (map (\<lambda>S. compute_bound prec f S) Ds)
-         in map_option interval_list_union S)"
+         in map_option interval_list_union S
+       )"
 
 (* Automatically computed bounds are correct. *)
 lemma compute_ivl_bound_correct:
@@ -1530,7 +1534,7 @@ shows "interpret_floatarith f x \<in> set_of B"
 proof-
   from assms(3) obtain t where B_def: "B = compute_bound_tm t I (map mid I)" 
                            and t_def: "Some t = compute_tm prec n I (map mid I) f"
-    by (simp, metis (mono_tags, lifting) option.case_eq_if option.collapse option.distinct(1) option.inject)
+    by (smt compute_ivl_bound.simps map_option_eq_Some option.simps(8))
   
   from compute_bound_tm_correct[OF compute_tm_valid[OF `0 < n` assms(2) _ t_def] `x all_in I`] mid_in_interval
   show ?thesis
@@ -1543,22 +1547,26 @@ assumes "Some B = compute_ivl_bound_naive prec n I f"
 assumes "x all_in I"
 shows "interpret_floatarith f x \<in> set_of B"
 proof-
-  def Ds \<equiv>"split_domain (split_interval n) I"
+  def Ds \<equiv>"split_domain (\<lambda>x a. subdivide_interval n x) I (map mid I)"
 
-  have "list_ex (\<lambda>s. x all_in map (interval_map real_of_float) s) Ds"
-    using split_domain_correct[OF \<open>x all_in I\<close> split_interval_correct]
-    by (simp add:  Ds_def)
+  have "list_ex (\<lambda>s. x all_in (s:: float interval list)) Ds"
+    unfolding Ds_def
+    apply(rule split_domain_correct[OF \<open>x all_in I\<close>])
+    apply(simp_all add: mid_in_interval)
+    apply(drule subdivide_interval_correct)
+    by assumption
   then obtain i where i1: "i < length Ds"
              and i2: "x all_in (Ds ! i)"
     by (auto simp: Ds_def list_ex_length)
   obtain S where S_def: "those (map (\<lambda>S. compute_bound prec f S) Ds) = Some S"
     using assms(2) Ds_def
     by fastforce
-    
   have "S \<noteq> []"
-    by (metis S_def Some_those_length i1 length_map list.size(3) not_less0)
+    using Some_those_length[OF S_def[symmetric]] i1
+    by auto
   moreover have "B = interval_list_union S"
-    by (metis Ds_def S_def assms(2) compute_ivl_bound_naive.elims map_option_eq_Some option.inject)
+    using assms(2) S_def
+    by (simp add: Ds_def[symmetric])
   ultimately have Si_subset_B: "\<And>i. i < length S \<Longrightarrow> set_of (S ! i) \<subseteq> set_of B"
      using interval_list_union_correct
      by auto

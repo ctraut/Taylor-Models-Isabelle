@@ -45,12 +45,14 @@ value "the (compute_ivl_bound_naive 32 10 [Ivl (-1) 1] (Add (Power (Cos (Var 0))
 value "the (compute_tm 32 10 [Ivl (-1) 1] [0] (Cos (Var 0)))"
 value "the (compute_tm 32 10 [Ivl (-1) 1] [0] (Cos (Add (Var 0) (Mult (Num 2) Pi))))"
 value "the (compute_tm 32 10 [Ivl (-1) 1] [0] (Add (Power (Cos (Var 0)) 2) (Power (Sin (Var 0)) 2)))"
-value "the (compute_tm 32 10 [Ivl (2) 6] [4] (Add (Power (Cos (Var 0)) 2) (Power (Sin (Var 0)) 2)))"
+value "the (compute_tm 64 10 [Ivl 1 3] [2] (Add (Power (Cos (Var 0)) 2) (Power (Sin (Var 0)) 2)))"
+value "the (compute_tm 32 10 [Ivl (2 - Float 1 2) (2 +  Float 1 2)] [2] (Add (Power (Cos (Add (Var 0) (Num (-2)))) 2) (Power (Sin (Add (Var 0) (Num (-2)))) 2)))"
 
 value "the (compute_ivl_bound 32 10 [Ivl (-1) 1] (Cos (Var 0)))"
 value "the (compute_ivl_bound 32 10 [Ivl (-1) 1] (Cos (Add (Var 0) (Mult (Num 2) Pi))))"
 value "the (compute_ivl_bound 32 10 [Ivl (-1) 1] (Add (Power (Cos (Var 0)) 2) (Power (Sin (Var 0)) 2)))"
-value "the (compute_ivl_bound 32 10 [Ivl (1) 2] (Add (Power (Cos (Var 0)) 2) (Power (Sin (Var 0)) 2)))"
+value "the (compute_ivl_bound 32 10 [Ivl 1 3]    (Add (Power (Cos (Var 0)) 2) (Power (Sin (Var 0)) 2)))"
+value "the (compute_ivl_bound 32 10 [Ivl (-1) 1] (Add (Power (Cos (Var 0)) 2) (Power (Sin (Var 0)) 2)))"
 
 find_theorems "_ (Float _ _) = (_ :: real)"
 
