@@ -298,17 +298,29 @@ where "split_by_prec prec (poly.C f) = (let r = float_round prec f in (poly.C r,
 lemma split_by_prec_correct:
 fixes args :: "real list"
 assumes "(l, r) = split_by_prec prec p"
-shows "Ipoly args p = Ipoly args l + Ipoly args r"
+shows "Ipoly args p = Ipoly args l + Ipoly args r" (is ?P1)
+and   "num_params l \<le> num_params p" (is ?P2)
+and   "num_params r \<le> num_params p" (is ?P3)
+unfolding atomize_conj
 using assms
 proof(induction p arbitrary: l r)
   case (Add p1 p2 l r)
-  thus ?case by (simp add: Add(1,2)[OF prod.collapse] split_beta)
+  thus ?case
+    apply(simp add: Add(1,2)[OF prod.collapse] split_beta)
+    using max.coboundedI1 max.coboundedI2 prod.collapse
+    by blast
 next
   case (Sub p1 p2 l r)
-  thus ?case by (simp add: Sub(1,2)[OF prod.collapse] split_beta)
+  thus ?case
+  apply(simp add: Sub(1,2)[OF prod.collapse] split_beta)
+  using max.coboundedI1 max.coboundedI2 prod.collapse
+  by blast
 next
   case (Mul p1 p2 l r)
-  thus ?case by (simp add: Mul(1,2)[OF prod.collapse] split_beta algebra_simps)
+  thus ?case
+  apply(simp add: Mul(1,2)[OF prod.collapse] split_beta algebra_simps)
+  using max.coboundedI1 max.coboundedI2 prod.collapse
+  by blast
 next
   case (Neg p l r) 
   thus ?case by (simp add: Neg(1)[OF prod.collapse] split_beta)
@@ -317,7 +329,9 @@ next
   thus ?case by (cases n) (simp_all add: Pw(1)[OF prod.collapse] split_beta)
 next
   case (CN c n p2)
-  thus ?case by (simp add: CN(1,2)[OF prod.collapse] split_beta algebra_simps)
+  thus ?case
+  apply(simp add: CN(1,2)[OF prod.collapse] split_beta algebra_simps) 
+  by (meson le_max_iff_disj prod.collapse)
 qed (simp_all add: Let_def)
 
 section \<open>Splitting polynomials by degree\<close>
@@ -345,38 +359,38 @@ where "split_by_degree n (poly.C c) = (poly.C c, poly.C 0)"
 
 lemma split_by_degree_correct:
 fixes x :: "real list" and p :: "float poly"
-assumes "(l, r) = split_by_degree n p"
-shows "maxdegree l \<le> n" (is ?P1)
+assumes "(l, r) = split_by_degree ord p"
+shows "maxdegree l \<le> ord" (is ?P1)
 and   "Ipoly x p = Ipoly x l + Ipoly x r" (is ?P2)
 and   "num_params l \<le> num_params p" (is ?P3)
 and   "num_params r \<le> num_params p" (is ?P4)
 unfolding atomize_conj
-  using assms
-proof(induction p arbitrary: l r n)
-  case (C c l r n)
+using assms
+proof(induction p arbitrary: l r ord)
+  case (C c l r ord)
   thus ?case by simp
 next
-  case (Bound v l r n)
-  thus ?case by (cases n) simp_all
+  case (Bound v l r ord)
+  thus ?case by (cases ord) simp_all
 next
-  case (Add p1 p2 l r n)
-  thus ?case by (cases n) simp_all
+  case (Add p1 p2 l r ord)
+  thus ?case by (cases ord) simp_all
 next
-  case (Sub p1 p2 l r n)
-  thus ?case by (cases n) simp_all
+  case (Sub p1 p2 l r ord)
+  thus ?case by (cases ord) simp_all
 next
-  case (Mul p1 p2 l r n)
-  thus ?case by (cases n) simp_all
+  case (Mul p1 p2 l r ord)
+  thus ?case by (cases ord) simp_all
 next
-  case (Neg p l r n)
-  thus ?case by (cases n) simp_all
+  case (Neg p l r ord)
+  thus ?case by (cases ord) simp_all
 next
-  case (Pw p k l r n)
-  thus ?case by (cases n) simp_all
+  case (Pw p k l r ord)
+  thus ?case by (cases ord) simp_all
 next
-  case (CN c v p l r n)
+  case (CN c v p l r ord)
   show ?case
-  proof(cases n)
+  proof(cases ord)
     case 0
     thus ?thesis using CN by simp
   next
@@ -387,7 +401,7 @@ next
       by (cases "split_by_degree m p", simp)
     have [simp]: "Ipoly x p = Ipoly x pl + Ipoly x pr"
       using CN(2)[OF pl_pr_def]
-      by (cases n) simp_all
+      by (cases ord) simp_all
     from CN(3)
     have l_decomp: "l = CN cl v pl" and r_decomp: "r = CN cr v pr"
       by (simp_all add: Suc cl_cr_def[symmetric] pl_pr_def[symmetric])

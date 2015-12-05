@@ -625,5 +625,150 @@ apply(metis linear min.coboundedI1 min.coboundedI2 mult_nonneg_nonpos mult_nonpo
 apply(metis linear max.coboundedI1 max.coboundedI2 mult_nonneg_nonneg mult_nonpos_nonpos)
 done
 
+(* Subdivisions on intervals and interval vectors. *)
+fun split_interval :: "nat \<Rightarrow> float interval \<Rightarrow> float interval list"
+where "split_interval 0 I = [I]"
+    | "split_interval (Suc n) I = (
+         let m = mid I
+         in (split_interval n (Ivl (lower I) m)) @ (split_interval n (Ivl m (upper I)))
+       )"
+
+fun split_domain :: "(float interval \<Rightarrow> float interval list) \<Rightarrow> float interval list \<Rightarrow> float interval list list"
+where "split_domain split [] = [[]]"
+    | "split_domain split (I#Is) = (
+         let S = split I;
+             D = split_domain split Is
+         in concat (map (\<lambda>d. map (\<lambda>s. s # d) S) D)
+       )"
+
+lemma split_interval_length:
+shows "length (split_interval n I) = 2^n"
+by(induction n arbitrary: I, simp_all add: Let_def)
+
+lemma split_interval_correct:
+fixes x :: real
+assumes "x \<in> set_of I"
+shows "list_ex (\<lambda>i. x \<in> set_of i) (split_interval n I)"
+using assms
+apply(induction n arbitrary: x I)
+apply(simp_all add: Let_def  list_ex_iff)
+(* TODO: better proof. *)
+by (metis UnCI atLeastAtMost_iff interval_map_def le_cases lower_Ivl mid_in_interval set_of_def upper_Ivl_b upper_Ivl_upper_lower_real)
+
+lemma split_domain_correct:
+fixes x :: "real list"
+assumes "x all_in I"
+assumes split_correct: "\<And>(x::real) I. x \<in> set_of I \<Longrightarrow> list_ex (\<lambda>i::float interval. x \<in> set_of i) (split I)"
+shows "list_ex (\<lambda>s. x all_in s) (split_domain split I)"
+using assms(1)
+proof(induction I arbitrary: x)
+  case (Cons I Is x)
+  show ?case
+  proof(cases x)
+    assume "x = []"
+    thus ?thesis using Cons by simp
+  next
+    fix h xs
+    assume x_decomp: "x = h # xs"
+    hence "h \<in> set_of I" "xs all_in Is"
+      using Cons(2)
+      by auto
+    
+    show ?thesis
+      unfolding split_domain.simps
+      using Cons(1)[OF \<open>xs all_in Is\<close>]
+            split_correct[OF \<open>h \<in> set_of I\<close>]
+      apply(simp add: Let_def list_ex_iff set_of_def)
+      by (smt length_Cons less_Suc_eq_0_disj nth_Cons_0 nth_Cons_Suc x_decomp)
+  qed
+qed simp
+
+lemma interval_list_union_correct:
+assumes "S \<noteq> []"
+assumes "i < length S"
+shows "set_of (S!i) \<subseteq> set_of (interval_list_union S)"
+using assms
+proof(induction S arbitrary: i)
+  case (Cons a S i)
+  thus ?case
+    proof(cases S)
+      fix b S'
+      assume "S = b # S'"
+      hence "S \<noteq> []"
+        by simp
+      show ?thesis
+      proof(cases i)
+        case 0
+        show ?thesis
+          apply(cases S)
+          using interval_union_mono1
+          by (auto simp add: 0)
+      next
+        case (Suc i_prev)
+        hence "i_prev < length S"
+        using Cons(3) by simp
+        
+        from Cons(1)[OF \<open>S \<noteq> []\<close> this] Cons(1)
+        have "set_of ((a # S) ! i) \<subseteq> set_of (interval_list_union S)"
+          by (simp add: \<open>i = Suc i_prev\<close>)
+        also have "... \<subseteq> set_of (interval_list_union (a # S))"
+          using \<open>S \<noteq> []\<close>
+          apply(cases S)
+          using interval_union_mono2
+          by auto
+        finally show ?thesis .
+      qed
+    qed simp
+qed simp
+
+(* Rounding of float intervals, by increasing their width. *)
+fun round_ivl :: "nat \<Rightarrow> float interval \<Rightarrow> float interval"
+where "round_ivl prec i = Ivl (float_down prec (lower i)) (float_up prec (upper i))"
+
+lemma float_down_le:
+shows "float_down p f \<le> f"
+using round_down by simp
+
+lemma float_up_le:
+shows "f \<le> float_up p f"
+using round_up by simp
+
+lemma round_ivl_correct:
+shows "set_of A \<subseteq> set_of (round_ivl prec A)"
+proof(cases A rule: interval_exhaust, rule)
+  fix l u x
+  assume A_decomp: "A = Ivl l u"
+  and "l \<le> u"
+  and "x \<in> set_of A"
+  hence "l \<le> x" and "x \<le> u"
+    by (simp_all add: set_of_def)
+    
+  have "float_down prec l \<le> x"
+    by (rule order.trans[OF float_down_le \<open>l \<le> x\<close>])
+  moreover have "x \<le> float_up prec u"
+    by (rule order.trans[OF \<open>x \<le> u\<close> float_up_le])
+  ultimately show "x \<in> set_of (round_ivl prec A)"
+    using \<open>l \<le> u\<close> by (simp add: A_decomp set_of_def)
+qed
+
+
+lemma real_of_float_round_ivl_correct:
+shows "set_of A \<subseteq> set_of ((round_ivl prec A) :: real interval)"
+proof(rule)
+  fix x :: real
+  assume "x \<in> set_of A"
+  obtain l u where A_decomp: "A = Ivl l u" and "l \<le> u"
+    using interval_exhaust by blast
+  from \<open>x \<in> set_of A\<close> \<open>l \<le> u\<close>
+  have "l \<le> x" "x \<le> u"
+    by (auto simp add: set_of_def A_decomp)
+  hence "round_down prec l \<le> l"
+    and "u \<le> round_up prec u"
+    using round_ivl_correct[of A prec] \<open>l \<le> u\<close> round_up 
+    by (auto simp add: A_decomp set_of_def) 
+  thus "x \<in> set_of (round_ivl prec A)"
+    using \<open>l \<le> x\<close> \<open>x \<le> u\<close>
+    by (simp add: set_of_def A_decomp)
+qed
 
 end
