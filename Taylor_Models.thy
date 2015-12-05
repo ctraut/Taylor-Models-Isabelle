@@ -10,22 +10,10 @@ begin
 
 section \<open>Multivariate Taylor Models\<close>
 
-(* Trying out arithmetic on intervals and polynomials with interval coefficients. *)
-value "Ivl (-1::float) 1 + Ivl 0 1"
-value "Ivl (-8::float) 2 + Ivl (-2) (-1)"
-value "Ivl (0::real) 1 * Ivl 0 1"
-value "Ivl (-10::real) 6 * Ivl (-4) 2"
-value "Ivl (-1::real) 1 * Ivl 0 1"
-value "Ivl (-1::float) 1 * Ivl 0 1"
-value "Ipoly [Ivl (Float 4 (-6)) (Float 10 (-6))] (poly.Add (poly.C (Ivl (Float 3 (-5)) (Float 3 (-5)))) (poly.Bound 0))"
-
-
 subsection \<open>Computing interval bounds on arithmetic expressions\<close>
 
 fun compute_bound :: "nat \<Rightarrow> floatarith \<Rightarrow> float interval list \<Rightarrow> float interval option"
-where "compute_bound prec p I = (case approx prec p (map (Some o proc_of) I) of Some (a, b) \<Rightarrow> (if a \<le> b then Some (Ivl a b) else None) | _ \<Rightarrow> None)"
-
-value "compute_bound 64 (Add (Var 0) (Num 3)) [Ivl 1 2]"
+where "compute_bound prec f I = (case approx prec f (map (Some o proc_of) I) of Some (a, b) \<Rightarrow> (if a \<le> b then Some (Ivl a b) else None) | _ \<Rightarrow> None)"
 
 lemma compute_bound_correct:
 fixes i::"real list"
@@ -289,8 +277,6 @@ fun deriv :: "nat \<Rightarrow> floatarith \<Rightarrow> nat \<Rightarrow> float
 where "deriv v f 0 = f"
     | "deriv v f (Suc n) = DERIV_floatarith v (deriv v f n)"
 
-value "map_option (interval_map real_of_float) (compute_bound 16 (Cos (Var 0)) [Ivl (-1) 1])"
-
 lemma isDERIV_DERIV_floatarith:
 assumes "isDERIV v f vs"
 shows "isDERIV v (DERIV_floatarith v f) vs"
@@ -413,8 +399,6 @@ where "tmf_cs' _ 0 I a f = []"
 (* Also add the n+1-th coefficient, representing the error contribution, and reorder the list. *)
 fun tmf_cs :: "nat \<Rightarrow> nat \<Rightarrow> float interval \<Rightarrow> float \<Rightarrow> floatarith \<Rightarrow> float interval list option"
 where "tmf_cs prec n I a f = those (rev (tmf_c prec n I f # (tmf_cs' prec n I a f)))"
-
-value "map (interval_map real_of_float) (the (tmf_cs 32 10 (Ivl 0 2) 1 (Cos (Var 0))))"
 
 lemma tmf_c_correct:
 fixes A::"float interval" and I::"float interval" and f::floatarith and a::real
@@ -755,13 +739,13 @@ where "tm_comp (TaylorModel p e) t I a = tm_inc_error (eval_poly_at_tm p t I a) 
    as long as the corresponding correctness lemmas tm_{abs,min,max}_valid are updated as well. *)
 fun tm_abs :: "taylor_model \<Rightarrow> float interval list \<Rightarrow> float list \<Rightarrow> taylor_model"
 where "tm_abs t I a = (
-  let bound=compute_bound_tm t I a; abs_bound=Ivl (0::float) (max (abs (lower bound)) (abs (upper bound)))
+  let bound = compute_bound_tm t I a; abs_bound=Ivl (0::float) (max (abs (lower bound)) (abs (upper bound)))
   in TaylorModel (poly.C (mid abs_bound)) (centered abs_bound))"
 
 fun tm_and :: "taylor_model \<Rightarrow> taylor_model \<Rightarrow> float interval list \<Rightarrow> float list \<Rightarrow> taylor_model"
 where "tm_and t1 t2 I a = (
-  let b1=compute_bound_tm t1 I a; b2=compute_bound_tm t2 I a;
-      b_combined=Ivl (min (lower b1) (lower b2)) (max (upper b1) (upper b2))
+  let b1 = compute_bound_tm t1 I a; b2 = compute_bound_tm t2 I a;
+      b_combined = interval_union b1 b2
   in TaylorModel (poly.C (mid b_combined)) (centered b_combined))"
   
 fun tm_min :: "taylor_model \<Rightarrow> taylor_model \<Rightarrow> float interval list \<Rightarrow> float list \<Rightarrow> taylor_model"
@@ -1022,7 +1006,7 @@ proof-
   obtain p e where tm_and_decomp: "tm_and t1 t2 I a = TaylorModel p e" using taylor_model.exhaust by auto
   then have p_def: "p = (mid b_combined)\<^sub>p"
         and e_def: "e = centered b_combined"
-    by (auto simp: Let_def b1_def b2_def b_combined_def)
+    by (auto simp: Let_def b1_def b2_def b_combined_def interval_union_def)
   
   show ?thesis
     apply(rule valid_tmI[OF tm_and_decomp])
@@ -1037,16 +1021,8 @@ lemma tm_and_valid_right:
 assumes "a all_in I"
 assumes "valid_tm I g t2"
 shows "valid_tm I g (tm_and t1 t2 I a)"
-proof-
-  {
-    fix t1 t2 I a
-    have "tm_and t1 t2 I a = tm_and t2 t1 I a"
-      by (simp, metis (mono_tags, lifting) max.commute min.commute)
-  }
-  thus ?thesis
-    using tm_and_valid_left[OF assms(1,2)]
-    by(simp)
-qed
+using tm_and_valid_left[OF assms(1,2)]
+by (simp add: interval_union_commute)
 
 lemma tm_min_valid:
 assumes "a all_in I"
@@ -1429,15 +1405,6 @@ next
     by (rule tm_max_valid)
 qed (simp_all add: valid_tm_def)
 
-(* Compute some taylor models. *)
-value "the (compute_tm 32 7 [Ivl 0 2] [1] (Num 2))"
-value "the (compute_tm 32 7 [Ivl 0 2] [1] (Var 0))"
-value "the (compute_tm 32 7 [Ivl 0 2, Ivl 0 2] [1,1] (Add (Var 0) (Var 1)))"
-value "tm_norm_poly (the (compute_tm 32 10 [Ivl (-1) 1] [0] (Cos (Var 0))))"
-value [code] "tm_norm_poly (the (compute_tm 32 7 [Ivl (-1) 1, Ivl (-1) 1] [0, 0] (Add (Exp (Add (Var 0) (Var 1))) (Cos (Mult (Var 0) (Var 1))))))"
-
-value "let I = [Ivl 1 3]; a = [2] in case (the (compute_tm 32 10 I a (Inverse (Var 0)))) of TaylorModel p e \<Rightarrow> (tm_lower_order (TaylorModel p e) 5 I a)"
-
 
 subsection \<open>Computing bounds for floatarith expressions\<close>
 
@@ -1445,9 +1412,91 @@ subsection \<open>Computing bounds for floatarith expressions\<close>
 fun compute_ivl_bound :: "nat \<Rightarrow> nat \<Rightarrow> float interval list \<Rightarrow> floatarith \<Rightarrow> float interval option"
 where "compute_ivl_bound prec n I f = (case compute_tm prec n I (map mid I) f of None \<Rightarrow> None | Some t \<Rightarrow> Some (compute_bound_tm t I (map mid I)))"
 
-value "map_option (interval_map real_of_float) (compute_ivl_bound 32 10 [Ivl (-1) 1] (Power (Cos (Var 0)) 2))"
-value "map_option (interval_map real_of_float) (compute_ivl_bound 32 10 [Ivl (1) 2] (Inverse (Add (Cos (Var 0)) (Num 2))))"
-value "map_option (interval_map real_of_float) (compute_ivl_bound 32 10 [Ivl (1) 2] (Inverse (Var 0)))"
+(* Subdivisions on intervals and interval vectors. *)
+fun split_interval :: "nat \<Rightarrow> float interval \<Rightarrow> float interval list"
+where "split_interval 0 I = [I]"
+    | "split_interval (Suc n) I = (
+         let m = mid I
+         in (split_interval n (Ivl (lower I) m)) @ (split_interval n (Ivl m (upper I)))
+       )"
+
+fun split_domain :: "nat \<Rightarrow> float interval list \<Rightarrow> float interval list list"
+where "split_domain n [] = [[]]"
+    | "split_domain n (I#Is) = (
+         let S = split_interval n I;
+             D = split_domain n Is
+         in concat (map (\<lambda>d. map (\<lambda>s. s # d) S) D)
+       )"
+
+(* Compute bounds using plain interval arithmetic by subdivision. *)
+fun compute_ivl_bound_naive :: "nat \<Rightarrow> nat \<Rightarrow> float interval list \<Rightarrow> floatarith \<Rightarrow> float interval option"
+where "compute_ivl_bound_naive prec n I f = (
+         let Ds = split_domain n I;
+             S = those (map (\<lambda>S. compute_bound prec f S) Ds)
+         in map_option interval_list_union S)"
+         
+lemma split_interval_length:
+shows "length (split_interval n I) = 2^n"
+by(induction n arbitrary: I, simp_all add: Let_def)
+
+lemma split_interval_correct:
+fixes x :: real
+assumes "x \<in> set_of I"
+shows "list_ex (\<lambda>i. x \<in> set_of i) (split_interval n I)"
+using assms
+apply(induction n arbitrary: x I)
+apply(simp_all add: Let_def  list_ex_iff)
+(* TODO: better proof. *)
+by (metis UnCI atLeastAtMost_iff interval_map_def le_cases lower_Ivl mid_in_interval set_of_def upper_Ivl_b upper_Ivl_upper_lower_real)
+
+lemma split_domain_zero[simp]:
+shows "split_domain 0 I = [I]"
+by (induction I, simp_all)
+
+lemma split_domain_correct:
+fixes x :: "real list"
+assumes "x all_in I"
+shows "list_ex (\<lambda>s. x all_in s) (split_domain n I)"
+using assms
+proof(induction I arbitrary: x n)
+  case (Cons I Is x n)
+  show ?case
+  proof(cases x)
+    assume "x = []"
+    thus ?thesis using Cons by simp
+  next
+    fix h xs
+    assume x_decomp: "x = h # xs"
+    hence "h \<in> set_of I" "xs all_in Is"
+      using Cons(2)
+      by auto
+    
+    show ?thesis
+    proof(cases n)
+      case 0
+      show ?thesis
+        apply(simp add: 0)
+        apply(safe)
+        using Cons.prems
+        apply auto[1]
+        using Cons
+        by (metis all_in_def length_Cons length_map nth_map)
+    next
+      case (Suc n')
+      
+      thm Cons(1)[OF \<open>xs all_in Is\<close>, of n]
+      thm split_interval_correct[of _ I n, OF \<open>h \<in> set_of I\<close>]
+      
+      show ?thesis
+        unfolding Suc split_domain.simps
+        unfolding Suc[symmetric]
+        using Cons(1)[OF \<open>xs all_in Is\<close>, of n]
+              split_interval_correct[of _ I n, OF \<open>h \<in> set_of I\<close>]
+        apply(simp add: Let_def list_ex_iff set_of_def)
+        by (smt length_Cons less_Suc_eq_0_disj nth_Cons_0 nth_Cons_Suc x_decomp)
+    qed
+  qed
+qed simp
 
 (* Automatically computed bounds are correct. *)
 lemma compute_ivl_bound_correct:
@@ -1464,6 +1513,82 @@ proof-
   from compute_bound_tm_correct[OF compute_tm_valid[OF `0 < n` assms(2) _ t_def] `x all_in I`] mid_in_interval
   show ?thesis
     by (simp add: B_def)
+qed
+
+lemma interval_list_union_correct:
+assumes "S \<noteq> []"
+assumes "i < length S"
+shows "set_of (S!i) \<subseteq> set_of (interval_list_union S)"
+using assms
+proof(induction S arbitrary: i)
+  case (Cons a S i)
+  thus ?case
+    proof(cases S)
+      fix b S'
+      assume "S = b # S'"
+      hence "S \<noteq> []"
+        by simp
+      show ?thesis
+      proof(cases i)
+        case 0
+        show ?thesis
+          apply(cases S)
+          using interval_union_mono1
+          by (auto simp add: 0)
+      next
+        case (Suc i_prev)
+        hence "i_prev < length S"
+        using Cons(3) by simp
+        
+        from Cons(1)[OF \<open>S \<noteq> []\<close> this] Cons(1)
+        have "set_of ((a # S) ! i) \<subseteq> set_of (interval_list_union S)"
+          by (simp add: \<open>i = Suc i_prev\<close>)
+        also have "... \<subseteq> set_of (interval_list_union (a # S))"
+          using \<open>S \<noteq> []\<close>
+          apply(cases S)
+          using interval_union_mono2
+          by auto
+        finally show ?thesis .
+      qed
+    qed simp
+qed simp
+
+lemma compute_ivl_bound_naive_correct:
+assumes "num_vars f \<le> length I"
+assumes "Some B = compute_ivl_bound_naive prec n I f"
+assumes "x all_in I"
+shows "interpret_floatarith f x \<in> set_of B"
+proof-
+  def Ds \<equiv>"split_domain n I"
+  from split_domain_correct[OF \<open>x all_in I\<close>, of n, simplified list_ex_length]
+  obtain i where i1: "i < length Ds"
+             and i2: "x all_in (Ds ! i)"
+    by (auto simp: Ds_def)
+  obtain S where S_def: "those (map (\<lambda>S. compute_bound prec f S) Ds) = Some S"
+    using assms(2) Ds_def
+    by fastforce
+    
+  have "S \<noteq> []"
+  by (metis Ds_def S_def Some_those_length \<open>\<exists>na<length (split_domain n I). x all_in map (interval_map real_of_float) (split_domain n I ! na)\<close> length_map list.size(3) not_less0)
+  moreover have "B = interval_list_union S"
+    by (metis Ds_def S_def assms(2) compute_ivl_bound_naive.elims map_option_eq_Some option.inject)
+  ultimately have Si_subset_B: "\<And>i. i < length S \<Longrightarrow> set_of (S ! i) \<subseteq> set_of B"
+     using interval_list_union_correct
+     by auto
+  
+  have "i < length S"
+    using Some_those_length[OF S_def[symmetric]] i1
+    by simp
+  from Some_those_nth[OF S_def[symmetric] this]
+  have SomeSi: "Some (S ! i) = compute_bound prec f (Ds ! i)"
+    by (simp add: i1)
+  
+  from Si_subset_B[OF \<open>i < length S\<close>]
+  have "set_of (S ! i) \<subseteq> set_of (B::real interval)"
+    by (simp add: interval_map_def set_of_def)
+  thus ?thesis
+    using compute_bound_correct[OF i2 SomeSi]
+    by auto
 qed
 
 ML \<open>Reification.conv @{context} @{thms interpret_form_equations} @{cterm "pi * sin y + exp' x::real"}\<close>

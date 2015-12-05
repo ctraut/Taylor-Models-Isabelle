@@ -35,6 +35,14 @@ where "interval_of x = Ivl x x"
 definition interval_map :: "('a::order \<Rightarrow> 'b::order) \<Rightarrow> 'a interval \<Rightarrow> 'b interval"
 where "interval_map f i = Ivl (f (lower i)) (f (upper i))"
 
+definition interval_union :: "'a::order interval \<Rightarrow> 'a interval \<Rightarrow> 'a interval"
+where "interval_union a b = Ivl (min (lower a) (lower b)) (max (upper a) (upper b))"
+
+fun interval_list_union :: "'a::linorder interval list \<Rightarrow> 'a interval"
+where "interval_list_union [] = undefined"
+    | "interval_list_union [I] = I"
+    | "interval_list_union (I#Is) = interval_union I (interval_list_union Is)"
+
 lemmas [simp] = proc_of_def
 
 lemma lower_le_upper:
@@ -82,6 +90,26 @@ fixes I::"float interval"
 shows "upper (Ivl (real_of_float (lower I)) (real_of_float(upper I))) = real_of_float (upper I)"
 using lower_le_upper less_eq_float.rep_eq upper_Ivl_b
 by blast
+
+lemma set_of_interval_union:
+fixes A::"'a::linorder interval"
+shows "set_of A \<union> set_of B \<subseteq> set_of (interval_union A B)"
+by (auto simp add: min_def max_def set_of_def interval_union_def)
+
+lemma interval_union_commute:
+fixes A::"'a::linorder interval"
+shows "interval_union A B = interval_union B A"
+by (auto simp add: min_def max_def set_of_def interval_union_def)
+
+lemma interval_union_mono1:
+fixes A :: "'a::linorder interval"
+shows "set_of a \<subseteq> set_of (interval_union a A)"
+by (auto simp add: set_of_def interval_union_def min_def max_def)
+
+lemma interval_union_mono2:
+fixes A :: "'a::linorder interval"
+shows "set_of A \<subseteq> set_of (interval_union a A)"
+by (auto simp add: set_of_def interval_union_def min_def max_def)
 
 lemma interval_exhaust:
 obtains l u
@@ -225,12 +253,12 @@ fixes A :: "'a::linordered_idom interval"
 shows "A * B = B * A"
 by (simp add: times_interval_def min.commute min.left_commute max.commute max.left_commute mult.commute)
 
-lemma [simp]:
+lemma interval_times_zero_right[simp]:
 fixes A :: "'a::linordered_idom interval"
 shows "A * 0 = 0"
 by (simp add: times_interval_def zero_interval_def)
 
-lemma [simp]:
+lemma interval_times_zero_left[simp]:
 fixes A :: "'a::linordered_idom interval"
 shows "0 * A = 0"
 by (simp add: times_interval_def zero_interval_def)
@@ -246,7 +274,7 @@ shows "A * 1 = A"
 using one_times_ivl_left[OF assms, unfolded interval_mul_commute]
 by assumption
 
-lemma [simp]:
+lemma set_of_real_to_float[simp]:
 fixes A :: "float interval"
 shows "(real_of_float a \<in> set_of (interval_map real_of_float A)) = (a \<in> set_of A)"
 by (cases A rule: interval_exhaust, simp add: set_of_def interval_map_def)
