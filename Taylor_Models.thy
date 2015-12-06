@@ -495,7 +495,7 @@ subsubsection \<open>Computing taylor models for arbitrary univariate expression
 
 fun tm_floatarith' :: "float interval list \<Rightarrow> float poly \<times> float interval poly"
 where "tm_floatarith' [] = (poly.C 0, poly.C 0)"
-    | "tm_floatarith' (c # cs) = (\<lambda>(pf, pi). (poly.Add (poly.C (mid c)) (poly.Mul (poly.Bound 0) pf), poly.Add (poly.C (centered c)) (poly.Mul (poly.Bound 0) pi))) (tm_floatarith' cs)"
+    | "tm_floatarith' (c # cs) = (\<lambda>(pf, pi). (poly.CN (poly.C (mid c)) 0 pf, poly.CN (poly.C (centered c)) 0 pi)) (tm_floatarith' cs)"
 
 (* Compute a taylor model from an arbitrary, univariate floatarith expression, if possible.
    This is used to compute taylor models for elemental functions like sin, cos, exp, etc. *)
@@ -535,7 +535,7 @@ proof-
         then obtain pf' pi' where pf'pi'_def: "(pf', pi') = tm_floatarith' cs"
           using prod.collapse by blast
         from this Cons(2)[unfolded tm_floatarith'.simps]
-        have pf_decomp: "pf = poly.Add (mid c)\<^sub>p (poly.Mul (poly.Bound 0) pf')"
+        have pf_decomp: "pf = poly.CN (mid c)\<^sub>p 0 pf'"
           by (metis old.prod.case prod.sel(1))
         show ?case
           using Cons(1)[OF pf'pi'_def]
@@ -559,7 +559,7 @@ proof-
           then obtain pf' pi' where pf'pi'_def: "(pf', pi') = tm_floatarith' cs"
             using prod.collapse by blast
           from this Cons(2)[unfolded tm_floatarith'.simps]
-          have pf_decomp: "pf = poly.Add (mid c)\<^sub>p (poly.Mul (poly.Bound 0) pf')"
+          have pf_decomp: "pf = poly.CN (mid c)\<^sub>p 0 pf'"
             by (metis old.prod.case prod.sel(1))
           show ?case
             using Cons(1)[OF pf'pi'_def]
@@ -574,7 +574,7 @@ proof-
           from tmf_cs_length[OF cs_def]
           obtain c cs' where cs_decomp: "cs = c # cs'" 
             by (metis Suc_eq_plus1 list.size(3) neq_Nil_conv old.nat.distinct(2))
-          obtain pi' where pi_decomp: "pi = poly.Add (c - interval_of (mid c))\<^sub>p (poly.Mul (poly.Bound 0) pi')"
+          obtain pi' where pi_decomp: "pi = poly.CN (c - interval_of (mid c))\<^sub>p 0 pi'"
             using pfpi_def
             by (simp add: cs_decomp case_prod_beta)
           show ?thesis
@@ -627,8 +627,8 @@ proof-
           obtain pf' pi' where pf'pi'_def: "(pf', pi') = tm_floatarith' cs"
             using prod.collapse by blast
           from Cons(2)
-          have pf_def: "pf = poly.Add (mid c)\<^sub>p (poly.Mul (poly.Bound 0) pf')"
-          and  pi_def: "pi = poly.Add (c - interval_of (mid c))\<^sub>p (poly.Mul (poly.Bound 0) pi')"
+          have pf_def: "pf = poly.CN (mid c)\<^sub>p 0 pf'"
+          and  pi_def: "pi = poly.CN (c - interval_of (mid c))\<^sub>p 0 pi'"
             by (auto simp: pf'pi'_def[symmetric])
           from Cons(3) have [simp]: "length cs = ord" by simp
             
@@ -695,7 +695,7 @@ proof-
           case (0 cs pi pf)
           from 0(2) obtain c where cs_def: "cs = [c]"
             by (metis Suc_eq_plus1 Suc_length_conv length_0_conv)
-          from 0(1) have pi_def: "pi = poly.Add (centered c)\<^sub>p (poly.Mul (poly.Bound 0) (0)\<^sub>p)"
+          from 0(1) have pi_def: "pi = poly.CN (centered c)\<^sub>p 0 (0)\<^sub>p"
             by (simp add: cs_def)
           show ?case
             by (simp add: 0(1) cs_def pi_def)
@@ -707,7 +707,7 @@ proof-
           hence "cs' \<noteq> []" by auto
           from cs_def obtain pf' pi' where pf'pi'_def: "(pf', pi') = tm_floatarith' cs'"
             using prod.collapse by blast
-          from Suc(2) have pi_def: "pi = poly.Add (centered c)\<^sub>p (poly.Mul (poly.Bound 0) pi')"
+          from Suc(2) have pi_def: "pi = poly.CN (centered c)\<^sub>p 0 pi'"
             by (simp add: cs_def pf'pi'_def[symmetric])
             
           have "set_of (horner_eval (\<lambda>i. interval_map real_of_float (cs ! i) - interval_of (real_of_float (mid (cs ! i)))) (interval_of (x - real_of_float a)) (Suc (Suc n)))
@@ -1564,13 +1564,13 @@ subsection \<open>Computing bounds for floatarith expressions\<close>
 (* Automatically find interval bounds for floatarith expressions. *)
 fun compute_ivl_bound :: "nat \<Rightarrow> nat \<Rightarrow> float interval list \<Rightarrow> floatarith \<Rightarrow> float interval option"
 where "compute_ivl_bound prec n I f = (
-         map_option (\<lambda>t. compute_bound_tm t I (map mid I)) (compute_tm prec n I (map mid I) f)
+         map_option (\<lambda>t. round_ivl prec (compute_bound_tm t I (map mid I))) (compute_tm prec n I (map mid I) f)
        )"
 
 (* Compute bounds using plain interval arithmetic by subdivision. *)
 fun compute_ivl_bound_naive :: "nat \<Rightarrow> nat \<Rightarrow> float interval list \<Rightarrow> floatarith \<Rightarrow> float interval option"
 where "compute_ivl_bound_naive prec n I f = (
-         let Ds = split_domain (\<lambda>x a. subdivide_interval n x) I (map mid I);
+         let Ds = split_domain (subdivide_interval n) I;
              S = those (map (\<lambda>S. compute_bound prec f S) Ds)
          in map_option interval_list_union S
        )"
@@ -1583,13 +1583,13 @@ assumes "Some B = compute_ivl_bound prec n I f"
 assumes "x all_in I"
 shows "interpret_floatarith f x \<in> set_of B"
 proof-
-  from assms(3) obtain t where B_def: "B = compute_bound_tm t I (map mid I)" 
+  from assms(3) obtain t where B_def: "B = round_ivl prec (compute_bound_tm t I (map mid I))" 
                            and t_def: "Some t = compute_tm prec n I (map mid I) f"
     by (smt compute_ivl_bound.simps map_option_eq_Some option.simps(8))
   
   from compute_bound_tm_correct[OF compute_tm_valid[OF `0 < n` assms(2) _ t_def] `x all_in I`] mid_in_interval
   show ?thesis
-    by (simp add: B_def)
+    using real_of_float_round_ivl_correct by (auto simp add: B_def)
 qed
 
 lemma compute_ivl_bound_naive_correct:
@@ -1598,7 +1598,7 @@ assumes "Some B = compute_ivl_bound_naive prec n I f"
 assumes "x all_in I"
 shows "interpret_floatarith f x \<in> set_of B"
 proof-
-  def Ds \<equiv>"split_domain (\<lambda>x a. subdivide_interval n x) I (map mid I)"
+  def Ds \<equiv>"split_domain (subdivide_interval n) I"
 
   have "list_ex (\<lambda>s. x all_in (s:: float interval list)) Ds"
     unfolding Ds_def

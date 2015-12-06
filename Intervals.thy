@@ -633,12 +633,11 @@ where "subdivide_interval 0 I = [I]"
          in (subdivide_interval n (Ivl (lower I) m)) @ (subdivide_interval n (Ivl m (upper I)))
        )"
 
-fun split_domain :: "(float interval \<Rightarrow> float \<Rightarrow> float interval list) \<Rightarrow> float interval list \<Rightarrow> float list \<Rightarrow> float interval list list"
-where "split_domain split [] a = [[]]"
-    | "split_domain split _ [] = [[]]"
-    | "split_domain split (I#Is) (a#as) = (
-         let S = split I a;
-             D = split_domain split Is as
+fun split_domain :: "(float interval \<Rightarrow> float interval list) \<Rightarrow> float interval list \<Rightarrow> float interval list list"
+where "split_domain split [] = [[]]"
+    | "split_domain split (I#Is) = (
+         let S = split I;
+             D = split_domain split Is
          in concat (map (\<lambda>d. map (\<lambda>s. s # d) S) D)
        )"
 
@@ -659,28 +658,21 @@ by (metis UnCI atLeastAtMost_iff interval_map_def le_cases lower_Ivl mid_in_inte
 lemma split_domain_correct:
 fixes x :: "real list"
 assumes "x all_in I"
-assumes "a all_in I"
-assumes split_correct: "\<And>(x::real) (a::float) I. x \<in> set_of I \<Longrightarrow> a \<in> set_of I \<Longrightarrow> list_ex (\<lambda>i::float interval. x \<in> set_of i) (split I a)"
-shows "list_ex (\<lambda>s. x all_in s) (split_domain split I a)"
-using assms(1,2)
-proof(induction I arbitrary: x a)
-  case (Cons I Is x a)
-  have "x \<noteq> []" "a \<noteq> []"
-    using Cons(2,3) by auto
+assumes split_correct: "\<And>(x::real) (a::float) I. x \<in> set_of I \<Longrightarrow> list_ex (\<lambda>i::float interval. x \<in> set_of i) (split I)"
+shows "list_ex (\<lambda>s. x all_in s) (split_domain split I)"
+using assms(1)
+proof(induction I arbitrary: x)
+  case (Cons I Is x)
+  have "x \<noteq> []"
+    using Cons(2) by auto
   obtain x' xs where x_decomp: "x = x' # xs"
     using \<open>x \<noteq> []\<close> list.exhaust by auto
   hence "x' \<in> set_of I" "xs all_in Is"
     using Cons(2)
     by auto
-  obtain a' as where a_decomp: "a = a' # as"
-    using \<open>a \<noteq> []\<close> list.exhaust by auto
-  hence "a' \<in> set_of I" "as all_in Is"
-    using Cons(3)
-    by auto
   show ?case
-    unfolding split_domain.simps a_decomp
-    using Cons(1)[OF \<open>xs all_in Is\<close> \<open>as all_in Is\<close>]
-          split_correct[OF \<open>x' \<in> set_of I\<close> \<open>a' \<in> set_of I\<close>]
+    using Cons(1)[OF \<open>xs all_in Is\<close>]
+          split_correct[OF \<open>x' \<in> set_of I\<close>]
     apply(simp add: Let_def list_ex_iff set_of_def)
     by (smt length_Cons less_Suc_eq_0_disj nth_Cons_0 nth_Cons_Suc x_decomp)
 qed simp

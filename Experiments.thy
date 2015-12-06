@@ -56,7 +56,7 @@ value "the (compute_ivl_bound 32 10 [Ivl (-10) 10] (Cos (Var 0)))"
 value "the (compute_ivl_bound 32 10 [Ivl (-1) 1] (Add (Power (Cos (Var 0)) 2) (Power (Sin (Var 0)) 2)))"
 value "the (compute_ivl_bound 32 10 [Ivl 1 3] (Add (Power (Cos (Var 0)) 2) (Power (Sin (Var 0)) 2)))"
 value "the (compute_ivl_bound 32 10 [Ivl 9 11] (Add (Power (Cos (Var 0)) 2) (Power (Sin (Var 0)) 2)))"
-value "the (compute_ivl_bound 64 5 [Ivl (Float (-1) (-4)) (Float (1) (-4))] (Add (Power (Cos (Add (Var 0) (Num (-2)))) 2) (Power (Sin (Add (Var 0) (Num (-2)))) 2)))"
+value "the (compute_ivl_bound 32 10 [Ivl (Float (-1) (-4)) (Float (1) (-4))] (Add (Power (Cos (Add (Var 0) (Num (-2)))) 2) (Power (Sin (Add (Var 0) (Num (-2)))) 2)))"
 value "the (compute_ivl_bound 32 10 [Ivl 1 3] (Add (Power (Cos (Add (Var 0) (Num (-2)))) 2) (Power (Sin (Add (Var 0) (Num (-2)))) 2)))"
 
 end
