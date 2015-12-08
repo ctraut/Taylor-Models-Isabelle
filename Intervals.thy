@@ -673,9 +673,15 @@ proof(induction I arbitrary: x)
   show ?case
     using Cons(1)[OF \<open>xs all_in Is\<close>]
           split_correct[OF \<open>x' \<in> set_of I\<close>]
-    apply(simp add: Let_def list_ex_iff set_of_def)
+    apply(simp add: list_ex_iff set_of_def)
     by (smt length_Cons less_Suc_eq_0_disj nth_Cons_0 nth_Cons_Suc x_decomp)
 qed simp
+
+lemma split_domain_nonempty:
+assumes "\<And>I. split I \<noteq> []"
+shows "split_domain split I \<noteq> []"
+using last_in_set assms
+by (induction I, auto)
 
 lemma interval_list_union_correct:
 assumes "S \<noteq> []"
