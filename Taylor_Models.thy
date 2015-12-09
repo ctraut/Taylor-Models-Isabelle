@@ -424,22 +424,17 @@ subsubsection \<open>Computing taylor models for arbitrary univariate expression
 
 (* The interval coefficients of the taylor polynomial,
    i.e. the real coefficients approximated by a float interval. *)
-fun tmf_c :: "nat \<Rightarrow> nat \<Rightarrow> float interval \<Rightarrow> floatarith \<Rightarrow> float interval option"
-where "tmf_c prec n i f = compute_bound_fa prec (Mult (deriv_0 f n) (Inverse (Num (fact n)))) [i]"
+fun tmf_c :: "nat \<Rightarrow> float interval \<Rightarrow> floatarith \<Rightarrow> nat \<Rightarrow> float interval option"
+where "tmf_c prec I f i = compute_bound_fa prec (Mult (deriv_0 f i) (Inverse (Num (fact i)))) [I]"
 
-(* Make a list of the n coefficients. *) 
-fun tmf_cs' :: "nat \<Rightarrow> nat \<Rightarrow> float interval \<Rightarrow> float interval \<Rightarrow> floatarith \<Rightarrow> float interval option list"
-where "tmf_cs' _ 0 I a f = []"
-    | "tmf_cs' prec (Suc n) I a f = (tmf_c prec n a f) # (tmf_cs' prec n I a f)"
+(* Make a list of the n+1 coefficients, with the n+1-th coefficient representing the error contribution.*)
+fun tmf_ivl_cs :: "nat \<Rightarrow> nat \<Rightarrow> float interval \<Rightarrow> float \<Rightarrow> floatarith \<Rightarrow> float interval list option"
+where "tmf_ivl_cs prec ord I a f = those (map (tmf_c prec a f) [0..<ord] @ [tmf_c prec I f ord])"
 
-(* Also add the n+1-th coefficient, representing the error contribution, and reorder the list. *)
-fun tmf_cs :: "nat \<Rightarrow> nat \<Rightarrow> float interval \<Rightarrow> float \<Rightarrow> floatarith \<Rightarrow> float interval list option"
-where "tmf_cs prec ord I a f = those (rev (tmf_c prec ord I f # (tmf_cs' prec ord I a f)))"
-
-fun tm_floatarith' :: "float interval list \<Rightarrow> float poly \<times> float interval poly"
-where "tm_floatarith' [] = (poly.C 0, poly.C 0)"
-    | "tm_floatarith' (c # cs) = (
-         let (pf, pi) = tm_floatarith' cs
+fun tmf_polys :: "float interval list \<Rightarrow> float poly \<times> float interval poly"
+where "tmf_polys [] = (poly.C 0, poly.C 0)"
+    | "tmf_polys (c # cs) = (
+         let (pf, pi) = tmf_polys cs
          in (poly.CN (poly.C (mid c)) 0 pf, poly.CN (poly.C (centered c)) 0 pi)
        )"
 
@@ -448,64 +443,44 @@ where "tm_floatarith' [] = (poly.C 0, poly.C 0)"
 fun tm_floatarith :: "nat \<Rightarrow> nat \<Rightarrow> float interval \<Rightarrow> float \<Rightarrow> floatarith \<Rightarrow> taylor_model option"
 where "tm_floatarith prec ord I a f = (
   map_option (\<lambda>cs. 
-    let (pf, pi) = tm_floatarith' cs;
-        e = round_ivl prec (Ipoly [I - interval_of a] pi)
+    let (pf, pi) = tmf_polys cs;
+        e = round_ivl prec (Ipoly [I - a] pi)
     in TaylorModel pf e
-  ) (tmf_cs prec ord I a f)
+  ) (tmf_ivl_cs prec ord I a f)
 )"
 
 lemma tmf_c_correct:
 fixes A::"float interval" and I::"float interval" and f::floatarith and a::real
 assumes "a \<in> set_of A"
-assumes "Some I = tmf_c prec i A f"
+assumes "Some I = tmf_c prec A f i"
 shows "interpret_floatarith (deriv_0 f i) [a] / fact i \<in> set_of I"
 using compute_bound_fa_correct[OF _  assms(2)[unfolded tmf_c.simps], where i="[a]"] assms(1)
 by (simp add: divide_real_def fact_real_float_equiv)
 
-lemma tmf_cs_length:
-assumes "Some cs = tmf_cs prec n A a f"
+lemma tmf_ivl_cs_length:
+assumes "Some cs = tmf_ivl_cs prec n A a f"
 shows "length cs = n + 1"
-apply(simp add: Some_those_length[OF assms[unfolded tmf_cs.simps]])
-by (induction n, simp_all)
+by (simp add: Some_those_length[OF assms[unfolded tmf_ivl_cs.simps]])
 
-lemma tmf_cs_correct:
+lemma tmf_ivl_cs_correct:
 fixes A::"float interval" and f::floatarith
-assumes "a \<in> set_of A"
-assumes "Some cs = tmf_cs prec n A a f"
-shows "\<And>i. i < n \<Longrightarrow> Some (cs!i) = tmf_c prec i (interval_of a) f"
-and   "Some (cs!n) = tmf_c prec n A f"
+assumes "a \<in> set_of I"
+assumes "Some cs = tmf_ivl_cs prec ord I a f"
+shows "\<And>i. i < ord \<Longrightarrow> Some (cs!i) = tmf_c prec (interval_of a) f i"
+and   "Some (cs!ord) = tmf_c prec I f ord"
 proof-
-  from tmf_cs_length[OF assms(2)]
-  have n_ineq: "n < length cs"
-    by simp
-  from tmf_cs_length[OF assms(2)] assms(2)
-  have total_length: "length (tmf_c prec n A f # tmf_cs' prec n A a f) = Suc n"
-    by (metis Some_those_length Suc_eq_plus1 tmf_cs.simps length_rev)
-    
-  from Some_those_nth[OF assms(2)[unfolded tmf_cs.simps] n_ineq]
-  show "Some (cs ! n) = tmf_c prec n A f"
-    apply(subst (asm) rev_nth)
-    using total_length by auto
+  from tmf_ivl_cs_length[OF assms(2)]
+  show "Some (cs!ord) = tmf_c prec I f ord"
+    by (simp add: Some_those_nth assms(2) nth_append)
 next
-  fix i assume "i < n"
-  from tmf_cs_length[OF assms(2)] this
-  have i_ineq: "i < length cs"
-    by simp
-
-  from tmf_cs_length[OF assms(2)] assms(2)
-  have total_length: "length (tmf_c prec n A f # tmf_cs' prec n A a f) = Suc n"
-    by (metis Some_those_length Suc_eq_plus1 tmf_cs.simps length_rev)
-    
-  have "Some (cs ! i) = (tmf_c prec n A f # tmf_cs' prec n A a f) ! (n - i)"
-    using Some_those_nth[OF assms(2)[unfolded tmf_cs.simps] i_ineq]
-    apply(subst (asm) rev_nth)
-    using total_length `i < n`
-    by auto
-  also have "... = (tmf_cs' prec n A a f) ! (n - Suc i)"
-    using `i < n` by simp
-  also have "...  = tmf_c prec i (interval_of a) f"
-    using `i < n` by (induction n, auto simp: less_Suc_eq)
-  finally show "Some (cs ! i) = tmf_c prec i (interval_of a) f" .
+  fix i assume "i < ord"
+  have "Some (cs!i) = (map (tmf_c prec a f) [0..<ord] @ [tmf_c prec I f ord]) ! i"
+    apply(rule Some_those_nth)
+    using assms(2) tmf_ivl_cs_length \<open>i < ord\<close>
+    by simp_all
+  then show "Some (cs!i) = tmf_c prec a f i" 
+    using \<open>i < ord\<close>
+    by (simp add: nth_append)
 qed
 
 (* TODO: Clean this up! *)
@@ -517,11 +492,11 @@ shows "valid_tm [I] [a] (interpret_floatarith f) t"
 proof(cases "ord = 0")
   case True
   thm assms(3)[unfolded True, simplified]
-  obtain cs where tmf_cs_decomp: "tmf_cs prec ord I a f = Some cs"
+  obtain cs where tmf_cs_decomp: "tmf_ivl_cs prec ord I a f = Some cs"
     using assms(3) by fastforce
-  moreover have tmf_cs_decomp': "tmf_cs prec ord I a f = those [tmf_c prec ord I f]"
+  moreover have tmf_cs_decomp': "tmf_ivl_cs prec ord I a f = those [tmf_c prec I f ord]"
     by (simp add: True)
-  ultimately obtain c where tmf_c_decomp: "tmf_c prec ord I f = Some c"
+  ultimately obtain c where tmf_c_decomp: "tmf_c prec I f ord = Some c"
     by fastforce
   hence "cs = [c]"
     using tmf_cs_decomp tmf_cs_decomp' by auto
@@ -538,15 +513,14 @@ proof(cases "ord = 0")
     apply(rule set_of_minus_mono)
     apply(simp_all)
     by (smt Suc_length_conv length_0_conv nth_Cons_0)
-
 next
   case False
   hence "0 < ord" by simp
-  obtain cs where cs_def: "Some cs = tmf_cs prec ord I a f"
+  obtain cs where cs_def: "Some cs = tmf_ivl_cs prec ord I a f"
     using assms(3)[unfolded tm_floatarith.simps, symmetric]
       by auto
   from assms(3)[unfolded tm_floatarith.simps] 
-  obtain pf pi where pf_pi_def: "(pf, pi) = tm_floatarith' cs"
+  obtain pf pi where pf_pi_def: "(pf, pi) = tmf_polys cs"
     unfolding cs_def[symmetric]
     using prod.collapse by blast
   
@@ -566,9 +540,9 @@ next
       apply(simp)
       proof-
         case (Cons c cs pf pi)
-        then obtain pf' pi' where pf'pi'_def: "(pf', pi') = tm_floatarith' cs"
+        then obtain pf' pi' where pf'pi'_def: "(pf', pi') = tmf_polys cs"
           using prod.collapse by blast
-        from this Cons(2)[unfolded tm_floatarith'.simps]
+        from this Cons(2)[unfolded tmf_polys.simps]
         have pf_decomp: "pf = poly.CN (mid c)\<^sub>p 0 pf'"
           by (metis old.prod.case prod.sel(1))
         show ?case
@@ -585,14 +559,14 @@ next
     proof(cases "x = a")
       case True
       have pf_val_at_a: "Ipoly (list_op op- xs [a]) pf = mid (cs ! 0)"
-        using pf_pi_def tmf_cs_length[OF cs_def]
+        using pf_pi_def tmf_ivl_cs_length[OF cs_def]
         apply(induction cs arbitrary: pf pi ord)
         apply(simp)
         proof-
           case (Cons c cs pf pi ord)
-          then obtain pf' pi' where pf'pi'_def: "(pf', pi') = tm_floatarith' cs"
+          then obtain pf' pi' where pf'pi'_def: "(pf', pi') = tmf_polys cs"
             using prod.collapse by blast
-          from this Cons(2)[unfolded tm_floatarith'.simps]
+          from this Cons(2)[unfolded tmf_polys.simps]
           have pf_decomp: "pf = poly.CN (mid c)\<^sub>p 0 pf'"
             by (metis old.prod.case prod.sel(1))
           show ?case
@@ -601,11 +575,11 @@ next
         qed
       have "interpret_floatarith f xs - Ipoly (list_op op- xs [a]) pf \<in> set_of (interval_map real_of_float (cs ! 0) - (mid (cs ! 0)))"
         apply(rule set_of_minus_mono)
-        using pf_val_at_a tmf_c_correct[OF _ tmf_cs_correct(1)[OF assms(1) cs_def `0 < ord`], of a]
+        using pf_val_at_a tmf_c_correct[OF _ tmf_ivl_cs_correct(1)[OF assms(1) cs_def `0 < ord`], of a]
         by (simp_all add: xs_def `x = a` set_of_def)
       also have "... \<subseteq>  set_of (interval_map real_of_float (Ipoly [I - interval_of a] pi))"
         proof-
-          from tmf_cs_length[OF cs_def]
+          from tmf_ivl_cs_length[OF cs_def]
           obtain c cs' where cs_decomp: "cs = c # cs'" 
             by (metis Suc_eq_plus1 list.size(3) neq_Nil_conv old.nat.distinct(2))
           obtain pi' where pi_decomp: "pi = poly.CN (c - interval_of (mid c))\<^sub>p 0 pi'"
@@ -652,13 +626,13 @@ next
         apply(simp add: I_def set_of_def)
         by (meson less_eq_real_def order_trans)
       
-      from pf_pi_def tmf_cs_length[OF cs_def]
+      from pf_pi_def tmf_ivl_cs_length[OF cs_def]
       have Ipoly_pf_eq: "Ipoly (list_op op- xs [a]) pf = (\<Sum>m<Suc ord. mid (cs!m) * (x - a) ^ m)"
         apply(induction cs arbitrary: ord pf pi)
         apply(simp add: xs_def)
         proof-
           case (Cons c cs ord pf pi)
-          obtain pf' pi' where pf'pi'_def: "(pf', pi') = tm_floatarith' cs"
+          obtain pf' pi' where pf'pi'_def: "(pf', pi') = tmf_polys cs"
             using prod.collapse by blast
           from Cons(2)
           have pf_def: "pf = poly.CN (mid c)\<^sub>p 0 pf'"
@@ -710,10 +684,10 @@ next
         apply(rule horner_eval_interval)
         apply(simp add: cr_def ci_def)
         apply(safe)[1]
-        using tmf_c_correct[OF _ tmf_cs_correct(1)[OF assms(1) cs_def], where a=a, simplified]
+        using tmf_c_correct[OF _ tmf_ivl_cs_correct(1)[OF assms(1) cs_def], where a=a, simplified]
         apply(simp)
         apply(rule set_of_minus_mono)
-        using tmf_c_correct[OF t_in_I tmf_cs_correct(2)[OF assms(1) cs_def]]
+        using tmf_c_correct[OF t_in_I tmf_ivl_cs_correct(2)[OF assms(1) cs_def]]
         apply(simp_all)
         proof(goal_cases)
           case(1 i)
@@ -724,7 +698,7 @@ next
             by simp
         qed
       also have "... \<subseteq> set_of (interval_map real_of_float (Ipoly [I - interval_of a] pi))"
-        using ci_def pf_pi_def tmf_cs_length[OF cs_def]
+        using ci_def pf_pi_def tmf_ivl_cs_length[OF cs_def]
         proof(induction ord arbitrary: cs pi pf ci)
           case (0 cs pi pf)
           from 0(2) obtain c where cs_def: "cs = [c]"
@@ -739,7 +713,7 @@ next
                                    and length_cs': "length cs' = n + 1"
             by (metis Suc_eq_plus1 length_Suc_conv)
           hence "cs' \<noteq> []" by auto
-          from cs_def obtain pf' pi' where pf'pi'_def: "(pf', pi') = tm_floatarith' cs'"
+          from cs_def obtain pf' pi' where pf'pi'_def: "(pf', pi') = tmf_polys cs'"
             using prod.collapse by blast
           from Suc(2) have pi_def: "pi = poly.CN (centered c)\<^sub>p 0 pi'"
             by (simp add: cs_def pf'pi'_def[symmetric])
