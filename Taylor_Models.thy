@@ -434,7 +434,7 @@ where "tmf_cs' _ 0 I a f = []"
 
 (* Also add the n+1-th coefficient, representing the error contribution, and reorder the list. *)
 fun tmf_cs :: "nat \<Rightarrow> nat \<Rightarrow> float interval \<Rightarrow> float \<Rightarrow> floatarith \<Rightarrow> float interval list option"
-where "tmf_cs prec n I a f = those (rev (tmf_c prec n I f # (tmf_cs' prec n I a f)))"
+where "tmf_cs prec ord I a f = those (rev (tmf_c prec ord I f # (tmf_cs' prec ord I a f)))"
 
 fun tm_floatarith' :: "float interval list \<Rightarrow> float poly \<times> float interval poly"
 where "tm_floatarith' [] = (poly.C 0, poly.C 0)"
@@ -510,22 +510,48 @@ qed
 
 (* TODO: Clean this up! *)
 lemma tm_floatarith_valid:
-assumes "0 < ord"
 assumes "a \<in> set_of I"
 assumes "\<And>x. x \<in> set_of I \<Longrightarrow> isDERIV 0 f [x]"
 assumes "Some t = tm_floatarith prec ord I a f"
 shows "valid_tm [I] [a] (interpret_floatarith f) t"
-proof-
+proof(cases "ord = 0")
+  case True
+  thm assms(3)[unfolded True, simplified]
+  obtain cs where tmf_cs_decomp: "tmf_cs prec ord I a f = Some cs"
+    using assms(3) by fastforce
+  moreover have tmf_cs_decomp': "tmf_cs prec ord I a f = those [tmf_c prec ord I f]"
+    by (simp add: True)
+  ultimately obtain c where tmf_c_decomp: "tmf_c prec ord I f = Some c"
+    by fastforce
+  hence "cs = [c]"
+    using tmf_cs_decomp tmf_cs_decomp' by auto
+  
+  show ?thesis
+    using assms(3)
+    unfolding tm_floatarith.simps tmf_cs_decomp
+    apply(simp add: \<open>cs = [c]\<close> del: round_ivl.simps)
+    apply(safe)
+    apply(rule assms(1))
+    apply(rule subsetD[OF real_of_float_round_ivl_correct])
+    apply(drule tmf_c_correct[OF _ tmf_c_decomp[symmetric], simplified \<open>ord = 0\<close>, simplified])
+    apply(simp)
+    apply(rule set_of_minus_mono)
+    apply(simp_all)
+    by (smt Suc_length_conv length_0_conv nth_Cons_0)
+
+next
+  case False
+  hence "0 < ord" by simp
   obtain cs where cs_def: "Some cs = tmf_cs prec ord I a f"
-    using assms(4)[unfolded tm_floatarith.simps, symmetric]
+    using assms(3)[unfolded tm_floatarith.simps, symmetric]
       by auto
-  from assms(4)[unfolded tm_floatarith.simps] 
+  from assms(3)[unfolded tm_floatarith.simps] 
   obtain pf pi where pf_pi_def: "(pf, pi) = tm_floatarith' cs"
     unfolding cs_def[symmetric]
     using prod.collapse by blast
   
   have t_def: "t = TaylorModel pf (round_ivl prec (Ipoly [I - interval_of a] pi))"
-    using assms(4)[unfolded tm_floatarith.simps]
+    using assms(3)[unfolded tm_floatarith.simps]
     unfolding cs_def[symmetric]
     by (simp add: pf_pi_def[symmetric])
   
@@ -575,7 +601,7 @@ proof-
         qed
       have "interpret_floatarith f xs - Ipoly (list_op op- xs [a]) pf \<in> set_of (interval_map real_of_float (cs ! 0) - (mid (cs ! 0)))"
         apply(rule set_of_minus_mono)
-        using pf_val_at_a tmf_c_correct[OF _ tmf_cs_correct(1)[OF assms(2) cs_def assms(1)], of a]
+        using pf_val_at_a tmf_c_correct[OF _ tmf_cs_correct(1)[OF assms(1) cs_def `0 < ord`], of a]
         by (simp_all add: xs_def `x = a` set_of_def)
       also have "... \<subseteq>  set_of (interval_map real_of_float (Ipoly [I - interval_of a] pi))"
         proof-
@@ -593,7 +619,7 @@ proof-
             apply(rule set_of_mul_contains_zero)
             apply(rule disjI1)
             apply(rule set_of_minus_mono[where a="a" and b="a" and A="interval_map real_of_float I", simplified])
-            using assms(2)
+            using assms(1)
             by (simp_all add: uminus_interval_def)
         qed
       finally show ?thesis .
@@ -610,9 +636,9 @@ proof-
         apply(rule `0 < ord`)
         apply(simp)
         apply(safe)[1]
-        apply(rule deriv_0_correct[OF assms(3)])
+        apply(rule deriv_0_correct[OF assms(2)])
         apply(simp add: I_def)
-        using assms(2) x_in_I `x \<noteq> a` l_le_u
+        using assms(1) x_in_I `x \<noteq> a` l_le_u
         by (simp_all add: I_def set_of_def)
       then obtain t 
       where "if x < real_of_float a then x < t \<and> t < real_of_float a else real_of_float a < t \<and> t < x"
@@ -622,7 +648,7 @@ proof-
            + interpret_floatarith (deriv_0 f ord) [t] / fact ord * (x - real_of_float a) ^ ord"
         by auto
       from this(1) have t_in_I: "t \<in> set_of I"
-        using assms(2) x_in_I l_le_u
+        using assms(1) x_in_I l_le_u
         apply(simp add: I_def set_of_def)
         by (meson less_eq_real_def order_trans)
       
@@ -684,10 +710,10 @@ proof-
         apply(rule horner_eval_interval)
         apply(simp add: cr_def ci_def)
         apply(safe)[1]
-        using tmf_c_correct[OF _ tmf_cs_correct(1)[OF  assms(2) cs_def], where a=a, simplified]
+        using tmf_c_correct[OF _ tmf_cs_correct(1)[OF assms(1) cs_def], where a=a, simplified]
         apply(simp)
         apply(rule set_of_minus_mono)
-        using tmf_c_correct[OF t_in_I tmf_cs_correct(2)[OF assms(2) cs_def]]
+        using tmf_c_correct[OF t_in_I tmf_cs_correct(2)[OF assms(1) cs_def]]
         apply(simp_all)
         proof(goal_cases)
           case(1 i)
@@ -1383,7 +1409,6 @@ where "compute_tm _ _ I _ (Num c) = Some (tm_const c)"
           | _ \<Rightarrow> None)"
 
 lemma compute_tm_by_comp_valid:
-assumes "0 < ord"
 assumes "num_vars f \<le> 1"
 assumes tx_valid: "valid_tm I a (interpret_floatarith g) tg"
 assumes t_def: "Some t = compute_tm_by_comp prec ord I a f (Some tg) c"
@@ -1409,12 +1434,11 @@ proof-
     apply(rule tm_comp_valid[OF _ _ tx_valid])
     apply(rule compute_bound_tm_correct[OF tx_valid])
     apply(simp)
-    using tm_floatarith_valid[OF `0 < ord` a1 f_deriv[OF _ c_true] t1_def, simplified]
+    using tm_floatarith_valid[OF a1 f_deriv[OF _ c_true] t1_def, simplified]
     by simp
 qed
 
 lemma compute_tm_valid:
-assumes "0 < ord"
 assumes num_vars_f: "num_vars f \<le> length I"
 assumes "a all_in I"
 assumes t_def: "Some t = compute_tm prec ord I a f"
@@ -1423,11 +1447,11 @@ using num_vars_f t_def
 proof(induct f arbitrary: t)
   case (Var n)
   thus ?case
-    using assms(3) by simp
+    using assms(2) by simp
 next
   case (Num c)
   thus ?case 
-    using assms(3) by (simp add: assms(3))
+    using assms(2) by (simp add: assms(3))
 next
   case (Add l r t)
   obtain t1 where t1_def: "Some t1 = compute_tm prec ord I a l"
@@ -1492,28 +1516,28 @@ next
           isDERIV 0 (Inverse (Var 0)) [x]"
     by (simp add: set_of_def interval_map_def, safe, simp_all)
   thus ?case
-    using compute_tm_by_comp_valid[OF `0 < ord` _ Inverse(1)[OF Inverse(2)[simplified] tf_def] Inverse(3)[unfolded compute_tm.simps tf_def[symmetric]]]
+    using compute_tm_by_comp_valid[OF _ Inverse(1)[OF Inverse(2)[simplified] tf_def] Inverse(3)[unfolded compute_tm.simps tf_def[symmetric]]]
     by (cases t, simp)
 next
   case (Cos f t)
   from Cos(3) obtain tf where tf_def: "Some tf = compute_tm prec ord I a f"
     by (simp, metis (no_types, lifting) option.case_eq_if option.collapse)
   show ?case
-    using compute_tm_by_comp_valid[OF `0 < ord` _ Cos(1)[OF Cos(2)[simplified] tf_def] Cos(3)[unfolded compute_tm.simps tf_def[symmetric]]]
+    using compute_tm_by_comp_valid[OF _ Cos(1)[OF Cos(2)[simplified] tf_def] Cos(3)[unfolded compute_tm.simps tf_def[symmetric]]]
     by (cases t, simp)
 next
   case (Arctan f t)
   from Arctan(3) obtain tf where tf_def: "Some tf = compute_tm prec ord I a f"
     by (simp, metis (no_types, lifting) option.case_eq_if option.collapse)
   show ?case
-    using compute_tm_by_comp_valid[OF `0 < ord` _ Arctan(1)[OF Arctan(2)[simplified] tf_def] Arctan(3)[unfolded compute_tm.simps tf_def[symmetric]]]
+    using compute_tm_by_comp_valid[OF _ Arctan(1)[OF Arctan(2)[simplified] tf_def] Arctan(3)[unfolded compute_tm.simps tf_def[symmetric]]]
     by (cases t, simp)
 next
   case (Exp f t)
   from Exp(3) obtain tf where tf_def: "Some tf = compute_tm prec ord I a f"
     by (simp, metis (no_types, lifting) option.case_eq_if option.collapse)
   show ?case
-    using compute_tm_by_comp_valid[OF `0 < ord` _ Exp(1)[OF Exp(2)[simplified] tf_def] Exp(3)[unfolded compute_tm.simps tf_def[symmetric]]]
+    using compute_tm_by_comp_valid[OF _ Exp(1)[OF Exp(2)[simplified] tf_def] Exp(3)[unfolded compute_tm.simps tf_def[symmetric]]]
     by (cases t, simp)
 next
   case (Ln f t)
@@ -1524,7 +1548,7 @@ next
           isDERIV 0 (Ln (Var 0)) [x]"
     by (simp add: set_of_def interval_map_def)
   thus ?case
-    using compute_tm_by_comp_valid[OF `0 < ord` _ Ln(1)[OF Ln(2)[simplified] tf_def] Ln(3)[unfolded compute_tm.simps tf_def[symmetric]]]
+    using compute_tm_by_comp_valid[OF _ Ln(1)[OF Ln(2)[simplified] tf_def] Ln(3)[unfolded compute_tm.simps tf_def[symmetric]]]
     by (cases t, simp)
 next
   case (Sqrt f t)
@@ -1535,7 +1559,7 @@ next
           isDERIV 0 (Sqrt (Var 0)) [x]"
     by (simp add: set_of_def interval_map_def)
   thus ?case
-    using compute_tm_by_comp_valid[OF `0 < ord` _ Sqrt(1)[OF Sqrt(2)[simplified] tf_def] Sqrt(3)[unfolded compute_tm.simps tf_def[symmetric]]]
+    using compute_tm_by_comp_valid[OF _ Sqrt(1)[OF Sqrt(2)[simplified] tf_def] Sqrt(3)[unfolded compute_tm.simps tf_def[symmetric]]]
     by (cases t, simp)
 next
   case (Pi t)
@@ -1596,39 +1620,92 @@ qed
 subsection \<open>Computing bounds for floatarith expressions\<close>
 
 (* Automatically find interval bounds for floatarith expressions. *)
-fun compute_ivl_bound :: "nat \<Rightarrow> nat \<Rightarrow> float interval list \<Rightarrow> floatarith \<Rightarrow> float interval option"
-where "compute_ivl_bound prec n I f = (
-         map_option (\<lambda>t. round_ivl prec (compute_bound_tm I (map mid I) t)) (compute_tm prec n I (map mid I) f)
+fun compute_ivl_bound :: "nat \<Rightarrow> nat \<Rightarrow> floatarith \<Rightarrow> float interval list \<Rightarrow> float interval option"
+where "compute_ivl_bound prec ord f I = (
+         map_option (\<lambda>t. round_ivl prec (compute_bound_tm I (map mid I) t)) (compute_tm prec ord I (map mid I) f)
+       )"
+
+fun compute_ivl_bound_subdiv :: "nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> floatarith \<Rightarrow> float interval list \<Rightarrow> float interval option"
+where "compute_ivl_bound_subdiv prec ord n f I = (
+         let Ds = split_domain (subdivide_interval n) I;
+             S = those (map (compute_ivl_bound prec ord f) Ds)
+         in map_option interval_list_union S
        )"
 
 (* Compute bounds using plain interval arithmetic by subdivision. *)
-fun compute_ivl_bound_naive :: "nat \<Rightarrow> nat \<Rightarrow> float interval list \<Rightarrow> floatarith \<Rightarrow> float interval option"
-where "compute_ivl_bound_naive prec n I f = (
+fun compute_ivl_bound_naive :: "nat \<Rightarrow> nat \<Rightarrow> floatarith \<Rightarrow> float interval list \<Rightarrow> float interval option"
+where "compute_ivl_bound_naive prec n f I = (
          let Ds = split_domain (subdivide_interval n) I;
-             S = those (map (\<lambda>S. compute_bound_fa prec f S) Ds)
+             S = those (map (compute_bound_fa prec f) Ds)
          in map_option interval_list_union S
        )"
 
 (* Automatically computed bounds are correct. *)
 lemma compute_ivl_bound_correct:
-assumes "0 < n"
 assumes "num_vars f \<le> length I"
-assumes "Some B = compute_ivl_bound prec n I f"
+assumes "Some B = compute_ivl_bound prec ord f I"
 assumes "x all_in I"
 shows "interpret_floatarith f x \<in> set_of B"
 proof-
-  from assms(3) obtain t where B_def: "B = round_ivl prec (compute_bound_tm I (map mid I) t)" 
-                           and t_def: "Some t = compute_tm prec n I (map mid I) f"
+  from assms(2) obtain t where B_def: "B = round_ivl prec (compute_bound_tm I (map mid I) t)" 
+                           and t_def: "Some t = compute_tm prec ord I (map mid I) f"
     by (smt compute_ivl_bound.simps map_option_eq_Some option.simps(8))
   
-  from compute_bound_tm_correct[OF compute_tm_valid[OF `0 < n` assms(2) _ t_def] `x all_in I`] mid_in_interval
+  from compute_bound_tm_correct[OF compute_tm_valid[OF assms(1) _ t_def] `x all_in I`] mid_in_interval
   show ?thesis
     using real_of_float_round_ivl_correct by (auto simp add: B_def)
 qed
 
+lemma compute_ivl_bound_subdiv_correct:
+assumes "num_vars f \<le> length I"
+assumes "Some B = compute_ivl_bound_subdiv prec ord n f I"
+assumes "x all_in I"
+shows "interpret_floatarith f x \<in> set_of B"
+proof-
+  def Ds \<equiv>"split_domain (subdivide_interval n) I"
+
+  have "list_ex (\<lambda>s. x all_in (s:: float interval list)) Ds"
+    unfolding Ds_def
+    apply(rule split_domain_correct[OF \<open>x all_in I\<close>])
+    apply(simp_all add: mid_in_interval)
+    apply(drule subdivide_interval_correct)
+    by assumption
+  then obtain i where i1: "i < length Ds"
+             and i2: "x all_in (Ds ! i)"
+    by (auto simp: Ds_def list_ex_length)
+  obtain S where S_def: "those (map (\<lambda>S. compute_ivl_bound prec ord f S) Ds) = Some S"
+    using assms(2) Ds_def
+    by fastforce
+  have "S \<noteq> []"
+    using Some_those_length[OF S_def[symmetric]] i1
+    by auto
+  moreover have "B = interval_list_union S"
+    using assms(2) S_def
+    by (simp add: Ds_def[symmetric])
+  ultimately have Si_subset_B: "\<And>i. i < length S \<Longrightarrow> set_of (S ! i) \<subseteq> set_of B"
+     using interval_list_union_correct
+     by auto
+  
+  have "i < length S"
+    using Some_those_length[OF S_def[symmetric]] i1
+    by simp
+  from Some_those_nth[OF S_def[symmetric] this]
+  have SomeSi: "Some (S ! i) = compute_ivl_bound prec ord f (Ds ! i)"
+    by (simp add: i1)
+  
+  from Si_subset_B[OF \<open>i < length S\<close>]
+  have "set_of (S ! i) \<subseteq> set_of (B::real interval)"
+    by (simp add: interval_map_def set_of_def)
+  thus ?thesis
+    apply(rule subsetD)
+    apply(rule compute_ivl_bound_correct[OF _ SomeSi i2])
+    using assms(1) assms(3) i2
+    by auto
+qed
+
 lemma compute_ivl_bound_naive_correct:
 assumes "num_vars f \<le> length I"
-assumes "Some B = compute_ivl_bound_naive prec n I f"
+assumes "Some B = compute_ivl_bound_naive prec n f I"
 assumes "x all_in I"
 shows "interpret_floatarith f x \<in> set_of B"
 proof-
