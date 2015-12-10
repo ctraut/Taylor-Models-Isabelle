@@ -335,7 +335,8 @@ by auto
 (* Faster derivation for univariate functions, producing smaller terms and thus less over-approximation. *)
 (* TODO: Extend to Arctan, Exp, Log! *)
 fun deriv_0 :: "floatarith \<Rightarrow> nat \<Rightarrow> floatarith"
-where "deriv_0 (Cos (Var 0)) n = (case n mod 4
+where "deriv_0 (Exp (Var 0)) _ = (Exp (Var 0))"
+    | "deriv_0 (Cos (Var 0)) n = (case n mod 4
          of 0 \<Rightarrow> Cos (Var 0)
          | Suc 0 \<Rightarrow> Minus (Sin (Var 0))
          | Suc (Suc 0) \<Rightarrow> Minus (Cos (Var 0))

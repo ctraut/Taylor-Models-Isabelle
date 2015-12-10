@@ -2,6 +2,10 @@ theory Experiments
 imports Taylor_Models
 begin
 
+value "the (compute_tm 7 2 [Ivl 0 1] [Float 1 (-1)] (Exp (Var 0)))"
+value "the (compute_tm 32 5 [Ivl (-1) 2] [1] (Exp (Var 0)))"
+
+
 (* Performance tests. *)
 definition "test_expr = (Add (Power (Cos (Var 0)) 2) (Power (Sin (Var 0)) 2))"
 
