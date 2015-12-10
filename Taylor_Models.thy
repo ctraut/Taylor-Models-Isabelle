@@ -177,12 +177,7 @@ subsection \<open>Interval bounds for taylor models\<close>
 
 (* Bound a polynomial by simply evaluating it with interval arguments. *)
 fun compute_bound_poly :: "float poly \<Rightarrow> float interval list \<Rightarrow> float list \<Rightarrow> float interval"
-where "compute_bound_poly p I a = (
-         Ipoly (list_op op- I a) p
-         (*let Ds = split_domain (\<lambda>x. [Ivl (lower x) 0, Ivl 0 (upper x)]) (list_op op- I a);
-             S = map (\<lambda>d. Ipoly d (p :: float interval poly)) Ds
-         in interval_list_union S*)
-       )"
+where "compute_bound_poly p I a = Ipoly (list_op op- I a) p"
 
 fun compute_bound_tm :: "float interval list \<Rightarrow> float list \<Rightarrow> taylor_model \<Rightarrow> float interval"
 where "compute_bound_tm I a (TaylorModel p e) = compute_bound_poly p I a + e"
@@ -799,7 +794,12 @@ where "tm_mul prec ord I a (TaylorModel p1 e1) (TaylorModel p2 e2) = (
   
 fun tm_pow :: "nat \<Rightarrow> nat \<Rightarrow> float interval list \<Rightarrow> float list \<Rightarrow> taylor_model \<Rightarrow> nat \<Rightarrow> taylor_model"
 where "tm_pow prec ord I a t 0 = tm_const 1"
-    | "tm_pow prec ord I a t (Suc n) = tm_mul prec ord I a t (tm_pow prec ord I a t n)"
+    | "tm_pow prec ord I a t (Suc n) = (
+         if odd (Suc n)
+         then tm_mul prec ord I a t (tm_pow prec ord I a t n)
+         else let t' = tm_pow prec ord I a t ((Suc n) div 2)
+              in tm_mul prec ord I a t' t'
+       )"
 
 (* Evaluates a float polynomial, using a taylor model as the parameter. This is used to compose taylor models. *)
 fun eval_poly_at_tm :: "nat \<Rightarrow> nat \<Rightarrow> float interval list \<Rightarrow> float list \<Rightarrow> float poly \<Rightarrow> taylor_model \<Rightarrow> taylor_model"
@@ -1119,12 +1119,36 @@ qed
 lemma tm_pow_valid:
 assumes "valid_tm I a f t"
 shows "valid_tm I a (f ^ n) (tm_pow prec ord I a t n)"
-apply(induction n)
-apply(simp)
-using all_in_def assms
-apply blast
-apply(drule tm_mul_valid[OF assms])
-by (simp add: func_times)
+using assms
+proof(induction n arbitrary: t rule: tm_pow.induct)
+  case (1 pr ord I a t t')
+  thus ?case
+    apply(simp)
+    using all_in_def
+    by auto
+next
+  case (2 pr ord I a t n t')
+  show ?case
+  proof(cases)
+    assume "odd (Suc n)"
+    show ?thesis
+      unfolding tm_pow.simps if_P[OF \<open>odd (Suc n)\<close>] power_Suc
+      by (rule tm_mul_valid[OF 2(3) 2(1)[OF \<open>odd (Suc n)\<close> 2(3)]])
+  next
+    assume "\<not>odd (Suc n)"
+    hence "even (Suc n)"
+      by simp
+    have f_pow_n_decomp: "f^(Suc n) = f^(Suc n div 2) * f^(Suc n div 2)"
+      apply(subst even_two_times_div_two[OF \<open>even (Suc n)\<close>, symmetric])
+      unfolding semiring_normalization_rules(36)
+      by simp
+    show ?thesis
+      unfolding tm_pow.simps if_not_P[OF \<open>\<not>odd (Suc n)\<close>] f_pow_n_decomp Let_def
+      apply(rule tm_mul_valid)
+      using 2(2)[OF \<open>\<not>odd (Suc n)\<close> 2(3)]
+      by simp_all
+  qed
+qed
 
 lemma eval_poly_at_tm_valid:
 assumes "num_params p \<le> 1"
