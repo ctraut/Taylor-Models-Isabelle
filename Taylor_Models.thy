@@ -12,6 +12,7 @@ section \<open>Multivariate Taylor Models\<close>
 
 subsection \<open>Computing interval bounds on arithmetic expressions\<close>
 
+(* This is a wrapper around the "approx" function. It computes range bounds on floatarith expressions.*)
 fun compute_bound_fa :: "nat \<Rightarrow> floatarith \<Rightarrow> float interval list \<Rightarrow> float interval option"
 where "compute_bound_fa prec f I = (case approx prec f (map (Some o proc_of) I) of Some (a, b) \<Rightarrow> (if a \<le> b then Some (Ivl a b) else None) | _ \<Rightarrow> None)"
 
@@ -108,9 +109,10 @@ subsection \<open>Definition of taylor models and notion of validity\<close>
 (* Taylor models are a pair of a polynomial and an absolute error bound. *)
 datatype taylor_model = TaylorModel "float poly" "float interval"
 
-(* A taylor model of function f on interval I is valid, iff
-     - its polynomial has the right number of parameters
-     - and it is close to f on I.
+(* A taylor model (p, e) of function f on interval I is valid, if
+     - p has the right number of parameters,
+     - it is close to f on I
+     - and p is defined on I - a. 
 *)
 primrec valid_tm :: "float interval list \<Rightarrow> float list \<Rightarrow> (real list \<Rightarrow> real) \<Rightarrow> taylor_model \<Rightarrow> bool"
 where "valid_tm I a f (TaylorModel p e) = (num_params p \<le> length I \<and> a all_in I \<and> (\<forall>x. x all_in I \<longrightarrow> f x - Ipoly (list_op op- x a) (p::real poly) \<in> set_of e))"
@@ -179,6 +181,7 @@ subsection \<open>Interval bounds for taylor models\<close>
 fun compute_bound_poly :: "float poly \<Rightarrow> float interval list \<Rightarrow> float list \<Rightarrow> float interval"
 where "compute_bound_poly p I a = Ipoly (list_op op- I a) p"
 
+(* Bounds on taylor models are simply a bound on its polynomial, widened by the approximation error. *)
 fun compute_bound_tm :: "float interval list \<Rightarrow> float list \<Rightarrow> taylor_model \<Rightarrow> float interval"
 where "compute_bound_tm I a (TaylorModel p e) = compute_bound_poly p I a + e"
 
@@ -333,9 +336,9 @@ using isDERIV_DERIV_floatarith assms
 by auto
 
 (* Faster derivation for univariate functions, producing smaller terms and thus less over-approximation. *)
-(* TODO: Extend to Arctan, Exp, Log! *)
+(* TODO: Extend to Arctan, Log! *)
 fun deriv_0 :: "floatarith \<Rightarrow> nat \<Rightarrow> floatarith"
-where "deriv_0 (Exp (Var 0)) _ = (Exp (Var 0))"
+where "deriv_0 (Exp (Var 0)) _ = Exp (Var 0)"
     | "deriv_0 (Cos (Var 0)) n = (case n mod 4
          of 0 \<Rightarrow> Cos (Var 0)
          | Suc 0 \<Rightarrow> Minus (Sin (Var 0))
@@ -423,7 +426,8 @@ subsubsection \<open>Computing taylor models for arbitrary univariate expression
 fun tmf_c :: "nat \<Rightarrow> float interval \<Rightarrow> floatarith \<Rightarrow> nat \<Rightarrow> float interval option"
 where "tmf_c prec I f i = compute_bound_fa prec (Mult (deriv_0 f i) (Inverse (Num (fact i)))) [I]"
 
-(* Make a list of the n+1 coefficients, with the n+1-th coefficient representing the error contribution.*)
+(* Make a list of bounds on the n+1 coefficients, with the n+1-th coefficient bounding
+   the remainder term of the Taylor-Lagrange formula.*)
 fun tmf_ivl_cs :: "nat \<Rightarrow> nat \<Rightarrow> float interval \<Rightarrow> float \<Rightarrow> floatarith \<Rightarrow> float interval list option"
 where "tmf_ivl_cs prec ord I a f = those (map (tmf_c prec a f) [0..<ord] @ [tmf_c prec I f ord])"
 
@@ -479,7 +483,7 @@ next
     by (simp add: nth_append)
 qed
 
-(* TODO: Clean this up! *)
+(* TODO: Clean this proof up! *)
 lemma tm_floatarith_valid:
 assumes "a \<in> set_of I"
 assumes "\<And>x. x \<in> set_of I \<Longrightarrow> isDERIV 0 f [x]"
@@ -761,7 +765,7 @@ where "tm_lower_order ord I a t = tm_lower_order_of_normed ord I a (tm_norm_poly
          in TaylorModel l (e + compute_bound_poly r I a)
        )"
 
-(* We also round our float coefficients. *)
+(* Rounding of taylor models. Rounds both the coefficients of the polynomial and the floats in the error bound. *)
 fun tm_round_floats tm_round_floats_of_normed :: "nat \<Rightarrow> float interval list \<Rightarrow> float list \<Rightarrow> taylor_model \<Rightarrow> taylor_model"
 where "tm_round_floats prec I a t = tm_round_floats_of_normed prec I a (tm_norm_poly t)"
     | "tm_round_floats_of_normed prec I a (TaylorModel p e) = (
@@ -769,7 +773,8 @@ where "tm_round_floats prec I a t = tm_round_floats_of_normed prec I a (tm_norm_
          in TaylorModel l (round_ivl prec (e + compute_bound_poly r I a))
        )"
 
-(* Order lowering and rounding on tayor models, also converts the polynomial into horner form. *)
+(* Normalization of taylor models. Performs order lowering and rounding on tayor models,
+   also converts the polynomial into horner form. *)
 fun tm_norm tm_norm' :: "nat \<Rightarrow> nat \<Rightarrow> float interval list \<Rightarrow> float list \<Rightarrow> taylor_model \<Rightarrow> taylor_model"
 where "tm_norm prec ord I a t = tm_norm' prec ord I a (tm_norm_poly t)"
     | "tm_norm' prec ord I a t = tm_round_floats_of_normed prec I a (tm_lower_order_of_normed ord I a t)" 
@@ -783,7 +788,6 @@ where "tm_add (TaylorModel p1 e1) (TaylorModel p2 e2) = TaylorModel (p1 +\<^sub>
 fun tm_sub :: "taylor_model \<Rightarrow> taylor_model \<Rightarrow> taylor_model"
 where "tm_sub t1 t2 = tm_add t1 (tm_neg t2)"
 
-(* Note: This increases the degree of the polynomial. tm_lower_order can be used to reduce it again. *)
 fun tm_mul :: "nat \<Rightarrow> nat \<Rightarrow> float interval list \<Rightarrow> float list \<Rightarrow> taylor_model \<Rightarrow> taylor_model \<Rightarrow> taylor_model"
 where "tm_mul prec ord I a (TaylorModel p1 e1) (TaylorModel p2 e2) = (
          let d1 = compute_bound_poly p1 I a;
@@ -1618,46 +1622,47 @@ qed
 
 subsection \<open>Computing bounds for floatarith expressions\<close>
 
-(* Automatically find interval bounds for floatarith expressions. *)
-fun compute_ivl_bound :: "nat \<Rightarrow> nat \<Rightarrow> floatarith \<Rightarrow> float interval list \<Rightarrow> float interval option"
-where "compute_ivl_bound prec ord f I = (
-         map_option (\<lambda>t. round_ivl prec (compute_bound_tm I (map mid I) t)) (compute_tm prec ord I (map mid I) f)
+(* Compute bounds on floatarith expressions via taylor models. *)
+fun compute_bound_fa_via_tm :: "nat \<Rightarrow> nat \<Rightarrow> floatarith \<Rightarrow> float interval list \<Rightarrow> float interval option"
+where "compute_bound_fa_via_tm prec ord f I = (
+         map_option ((round_ivl prec) o (compute_bound_tm I (map mid I))) (compute_tm prec ord I (map mid I) f)
        )"
 
-fun compute_ivl_bound_subdiv :: "nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> floatarith \<Rightarrow> float interval list \<Rightarrow> float interval option"
-where "compute_ivl_bound_subdiv prec ord n f I = (
+(* Like compute_bound_fa_via_tm, but subdivides the domain to increase precision. *)
+fun compute_bound_fa_via_tm' :: "nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> floatarith \<Rightarrow> float interval list \<Rightarrow> float interval option"
+where "compute_bound_fa_via_tm' prec ord n f I = (
          let Ds = split_domain (subdivide_interval n) I;
-             S = those (map (compute_ivl_bound prec ord f) Ds)
+             S = those (map (compute_bound_fa_via_tm prec ord f) Ds)
          in map_option interval_list_union S
        )"
 
-(* Compute bounds using plain interval arithmetic by subdivision. *)
-fun compute_ivl_bound_naive :: "nat \<Rightarrow> nat \<Rightarrow> floatarith \<Rightarrow> float interval list \<Rightarrow> float interval option"
-where "compute_ivl_bound_naive prec n f I = (
+(* Compute bounds using plain interval arithmetic and subdivision. *)
+fun compute_bound_fa_via_ia:: "nat \<Rightarrow> nat \<Rightarrow> floatarith \<Rightarrow> float interval list \<Rightarrow> float interval option"
+where "compute_bound_fa_via_ia prec n f I = (
          let Ds = split_domain (subdivide_interval n) I;
              S = those (map (compute_bound_fa prec f) Ds)
          in map_option interval_list_union S
        )"
 
 (* Automatically computed bounds are correct. *)
-lemma compute_ivl_bound_correct:
+lemma compute_bound_fa_via_tm_correct:
 assumes "num_vars f \<le> length I"
-assumes "Some B = compute_ivl_bound prec ord f I"
+assumes "Some B = compute_bound_fa_via_tm prec ord f I"
 assumes "x all_in I"
 shows "interpret_floatarith f x \<in> set_of B"
 proof-
   from assms(2) obtain t where B_def: "B = round_ivl prec (compute_bound_tm I (map mid I) t)" 
                            and t_def: "Some t = compute_tm prec ord I (map mid I) f"
-    by (smt compute_ivl_bound.simps map_option_eq_Some option.simps(8))
+    by (smt comp_apply compute_bound_fa_via_tm.simps map_option_eq_Some)
   
   from compute_bound_tm_correct[OF compute_tm_valid[OF assms(1) _ t_def] `x all_in I`] mid_in_interval
   show ?thesis
     using real_of_float_round_ivl_correct by (auto simp add: B_def)
 qed
 
-lemma compute_ivl_bound_subdiv_correct:
+lemma compute_bound_fa_via_tm'_correct:
 assumes "num_vars f \<le> length I"
-assumes "Some B = compute_ivl_bound_subdiv prec ord n f I"
+assumes "Some B = compute_bound_fa_via_tm' prec ord n f I"
 assumes "x all_in I"
 shows "interpret_floatarith f x \<in> set_of B"
 proof-
@@ -1672,7 +1677,7 @@ proof-
   then obtain i where i1: "i < length Ds"
              and i2: "x all_in (Ds ! i)"
     by (auto simp: Ds_def list_ex_length)
-  obtain S where S_def: "those (map (\<lambda>S. compute_ivl_bound prec ord f S) Ds) = Some S"
+  obtain S where S_def: "those (map (\<lambda>S. compute_bound_fa_via_tm prec ord f S) Ds) = Some S"
     using assms(2) Ds_def
     by fastforce
   have "S \<noteq> []"
@@ -1689,7 +1694,7 @@ proof-
     using Some_those_length[OF S_def[symmetric]] i1
     by simp
   from Some_those_nth[OF S_def[symmetric] this]
-  have SomeSi: "Some (S ! i) = compute_ivl_bound prec ord f (Ds ! i)"
+  have SomeSi: "Some (S ! i) = compute_bound_fa_via_tm prec ord f (Ds ! i)"
     by (simp add: i1)
   
   from Si_subset_B[OF \<open>i < length S\<close>]
@@ -1697,14 +1702,14 @@ proof-
     by (simp add: interval_map_def set_of_def)
   thus ?thesis
     apply(rule subsetD)
-    apply(rule compute_ivl_bound_correct[OF _ SomeSi i2])
+    apply(rule compute_bound_fa_via_tm_correct[OF _ SomeSi i2])
     using assms(1) assms(3) i2
     by auto
 qed
 
-lemma compute_ivl_bound_naive_correct:
+lemma compute_bound_fa_via_ia_correct:
 assumes "num_vars f \<le> length I"
-assumes "Some B = compute_ivl_bound_naive prec n f I"
+assumes "Some B = compute_bound_fa_via_ia prec n f I"
 assumes "x all_in I"
 shows "interpret_floatarith f x \<in> set_of B"
 proof-
