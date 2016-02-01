@@ -161,6 +161,15 @@ shows "x all_in J"
 using assms
 by (auto, auto)
 
+instantiation "interval" :: ("{order,equal}") equal
+begin
+  definition "equal_class.equal a b \<equiv> (lower a = lower b) \<and> (upper a = upper b)"
+  instance
+  apply(standard)
+  apply(simp add: equal_interval_def)
+  by (smt interval_exhaust lower_Ivl upper_Ivl_b)
+end
+
 (* Arithmetic on intervals. *)
 instantiation "interval" :: ("{order,plus}") plus
 begin
@@ -566,7 +575,7 @@ proof
     apply(simp add: A_def A'_def B_def times_interval_def set_of_def)
     apply(safe)
     apply(smt min.absorb_iff2 min.coboundedI2 min_def mult_le_cancel_right)
-    by (smt eq_iff le_max_iff_disj max_def mult_le_cancel_right)
+    by (smt lea lea' leb max_def max_mult_distrib_right min_def min_le_iff_disj mult_compare_simps(1) order_antisym_conv order_trans)
 qed
 
 lemma set_of_mul_inc_right:
